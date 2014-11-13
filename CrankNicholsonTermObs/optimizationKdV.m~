@@ -619,7 +619,7 @@ function myvisu(y,p,q,gamma,args,plottedsteps = 1)
     suptitle(str);
 end
 
-function exportPgfplot3d(filename,xg,tg,var,gamma,args)
+function exportPgfplot3d(filename,var,gamma,args)
     fichier=fopen(strcat(filename,num2str(gamma),'.txt'),'w+');
     fmt=['%6.4f %6.4f %6.4f\n'];
     var2=var(plottedsteps,:)';
@@ -627,17 +627,9 @@ function exportPgfplot3d(filename,xg,tg,var,gamma,args)
     for l=1:size(Y2,2)
         x=xg(:,l);
         t=tg(:,l);
-        vec=var2(:,l);
+        vec=Y2(:,l);
         fprintf(fichier,fmt,[x t vec]');
         fprintf(fichier,'\n');
     end
-    fclose(fichier);
-end
-
-function exportPgfplot2d(filename,x,var,gamma,args)
-    fichier=fopen(strcat(filename,num2str(gamma),'.txt'),'w+');    
-    fmt=['%6.4f %6.4f\n'];
-    fprintf(fichier,fmt,[x var]');
-    fprintf(fichier,'\n');
     fclose(fichier);
 end
