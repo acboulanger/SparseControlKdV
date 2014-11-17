@@ -6,22 +6,26 @@ function [q,y,args] = optimizationKdV()
     args.matrices = BuildMatrices(args);
     
 %% Uncomment if you want to test one forward/backward simulation of a soliton    
-%    args.kappa = 1.0;
-%    args.x0 = -2.0;
-%    args.xend = 5.0;
-%    args.y0 = 12*args.kappa^2*sech(args.kappa*(args.chebyGL - args.x0)).^2;%valeurs aux chebypoints
-%    q = 1.0*ones(args.nmax+2, args.N+1);
-%    y = solveState(q,args);
-%    plottedsteps=1:2:size(y.spatial,1);
-%    [tg,xg] = meshgrid(args.tdata(plottedsteps),args.chebyGL(1:end));
-%    set(gcf,'Position',[200,200,1500,1000])
-%    surf(xg,tg,y.spatial(plottedsteps,:)');
-%    p = solveAdjoint(q,y,args);
-%    surf(xg,tg,p.spatial(plottedsteps,:)');
+%     args.kappa = 1.0;
+%     args.x0 = -2.0;
+%     args.xend = 5.0;
+%     args.y0 = 12*args.kappa^2*sech(args.kappa*(args.chebyGL - args.x0)).^2;%valeurs aux chebypoints
+%     q = 0.0*ones(args.nmax+2, args.N+1);
+%     y = solveState(q,args);
+%     plottedsteps=1:2:size(y.spatial,1);
+%     [tg,xg] = meshgrid(args.tdata(plottedsteps),args.chebyGL(1:end));
+%     set(gcf,'Position',[200,200,1500,1000])
+%     subplot(1,2,1);
+%     surf(xg,tg,y.spatial(plottedsteps,:)');
+%     args.yobs = zeros(size(y.spatial(end,:)));
+%     args.yspecobs = args.matrices.trialT\(args.yobs)'; 
+%     p = solveAdjoint(q,y,args);
+%     subplot(1,2,2);
+%     surf(xg,tg,p.spatial(plottedsteps,:)');
 
 
 %% Uncomment if you want to test one forward simulation of a flow
-%   encountering an isolated disturbance    
+ % encountering an isolated disturbance    
 %    args.y0 = zeros(1,args.N+1);
 %    q = 0.0*ones(args.nmax+2, args.N+1);
 %    bumpvalue = 1.0;
@@ -38,8 +42,9 @@ function [q,y,args] = optimizationKdV()
 
 
 %% Uncomment if you want to check gradient/hessian
-%    CheckGradient(q, q, @solveState, @solveAdjoint, ...
-%        @computeJ, @computeJp, args);
+    q = 1.0*ones(args.nmax+2, args.N+1);
+    CheckGradient(q, q, @solveState, @solveAdjoint, ...
+        @computeJ, @computeJp, args);
 %    CheckHessian(q, 100.0*q, @solveState, @solveAdjoint, ...
 %        @solveTangent, @solveDFH, @computeJ, @computeJpp, args);
 
@@ -68,83 +73,83 @@ function [q,y,args] = optimizationKdV()
 %     args.yspecobs = args.matrices.trialT\(args.yobs)';
 
 %% Uncomment if goal is: create a specific wave at final time
-    q = 0.0*ones(args.nmax+2, args.N+1);
-    bumpvalue = 10.0;
-    bumpleft = args.N/2;
-    bumpright = args.N/2 + 5;
-    q(:,bumpleft) = bumpvalue;
-    q(:,bumpright) = -bumpvalue;
-    args.y0 = zeros(1,args.N+1);
-    y = solveState(q,args);
-    args.dy0 = zeros(size(args.chebyGL));
-    args.yobs = y.spatial(end,:);
-    args.yspecobs = args.matrices.trialT\(args.yobs)';
-
-
-    
-%%  Start of the continuation strategy
-    fprintf('Continuation strategy...\n');
-    
-    q = zeros(args.nmax+2,args.N+1);%initialization of the control
-    
-    for i=1:size(args.gammaArray,2)
-        gamma = args.gammaArray(i);% regularization term in 1/gamma
-        fprintf('gamma = %d \n', gamma);
-        update = 1;
-        iter=0;
-
-        y = solveState(q,args);% one forward simulation for y
-        p = solveAdjoint(q,y,args);% one backward simulation for p
-        
-        L2NormInTimeP = sqrt(args.dt*sum((p.spatial).*(p.spatial)));
-        for k=1:(args.N+1)    % check norm 0           
-            if (L2NormInTimeP(k) <= args.epsilon)
-                L2NormInTimeP(k) = args.alpha - args.epsilon;
-            end
-        end   
-        ActiveSet = repmat(L2NormInTimeP > args.alpha,args.nmax+2,1);
-        F = q - gamma/2*repmat(max(0,1-args.alpha./L2NormInTimeP),...
-            args.nmax+2,1).*(p.spatial);
-        normF = sqrt(sum(args.dt*sum(F.^2)))
-        if (normF<args.tolNewton)
-                update = 0;
-        end
-
-        while(update) %% Newton loop
-            profile on;
-
-            iter = iter+1;
-            fprintf('Semi-smooth Newton method, gamma = %d, iteration %d\n',...
-                gamma, iter);
-            beta = 1;
-            GradF = @(dq) ComputeOptCondGradient(q,dq,y,p,...
-                        L2NormInTimeP,ActiveSet,gamma,...
-                        @solveTangent,@solveDFH,args);
-
-            [dq,success,residual,itermeth] = gmres(GradF,-F(:),[],10^-7);
-            q = q + beta*reshape(dq,args.nmax+2,args.N+1);
-
-            y = solveState(q,args);% one forward simulation for y
-            p = solveAdjoint(q,y,args);% one backward simulation for p
-            
-            L2NormInTimeP = sqrt(args.dt*sum((p.spatial).*(p.spatial)));
-            for k=1:(args.N+1)    % check norm 0           
-                if (L2NormInTimeP(k) <= args.epsilon)
-                    L2NormInTimeP(k) = args.alpha - args.epsilon;
-                end
-            end
-            ActiveSet = repmat(L2NormInTimeP > args.alpha,args.nmax+2,1);
-            F = q - gamma/2*repmat(max(0,1-args.alpha./L2NormInTimeP),...
-                args.nmax+2,1).*(p.spatial);
-            normFprev = normF;
-            normF = sqrt(sum(args.dt*sum(F.^2)))
-            if((normF < args.tolNewton) || (iter > args.iterNewton) || ...
-                    abs(normF - normFprev) < 1e-4)
-                update = 0;
-            end
-        end % end Newton loop
-        myvisu(y.spatial,p.spatial,q,gamma,args);
-    end % end gamma loop
+%     q = 0.0*ones(args.nmax+2, args.N+1);
+%     bumpvalue = 10.0;
+%     bumpleft = args.N/2;
+%     bumpright = args.N/2 + 5;
+%     q(:,bumpleft) = bumpvalue;
+%     q(:,bumpright) = -bumpvalue;
+%     args.y0 = zeros(1,args.N+1);
+%     y = solveState(q,args);
+%     args.dy0 = zeros(size(args.chebyGL));
+%     args.yobs = y.spatial(end,:);
+%     args.yspecobs = args.matrices.trialT\(args.yobs)';
+% 
+% 
+%     
+% %%  Start of the continuation strategy
+%     fprintf('Continuation strategy...\n');
+%     
+%     q = zeros(args.nmax+2,args.N+1);%initialization of the control
+%     
+%     for i=1:size(args.gammaArray,2)
+%         gamma = args.gammaArray(i);% regularization term in 1/gamma
+%         fprintf('gamma = %d \n', gamma);
+%         update = 1;
+%         iter=0;
+% 
+%         y = solveState(q,args);% one forward simulation for y
+%         p = solveAdjoint(q,y,args);% one backward simulation for p
+%         
+%         L2NormInTimeP = sqrt(args.dt*sum((p.spatial).*(p.spatial)));
+%         for k=1:(args.N+1)    % check norm 0           
+%             if (L2NormInTimeP(k) <= args.epsilon)
+%                 L2NormInTimeP(k) = args.alpha - args.epsilon;
+%             end
+%         end   
+%         ActiveSet = repmat(L2NormInTimeP > args.alpha,args.nmax+2,1);
+%         F = q - gamma/2*repmat(max(0,1-args.alpha./L2NormInTimeP),...
+%             args.nmax+2,1).*(p.spatial);
+%         normF = sqrt(sum(args.dt*sum(F.^2)))
+%         if (normF<args.tolNewton)
+%                 update = 0;
+%         end
+% 
+%         while(update) %% Newton loop
+%             profile on;
+% 
+%             iter = iter+1;
+%             fprintf('Semi-smooth Newton method, gamma = %d, iteration %d\n',...
+%                 gamma, iter);
+%             beta = 1;
+%             GradF = @(dq) ComputeOptCondGradient(q,dq,y,p,...
+%                         L2NormInTimeP,ActiveSet,gamma,...
+%                         @solveTangent,@solveDFH,args);
+% 
+%             [dq,success,residual,itermeth] = gmres(GradF,-F(:),[],10^-7);
+%             q = q + beta*reshape(dq,args.nmax+2,args.N+1);
+% 
+%             y = solveState(q,args);% one forward simulation for y
+%             p = solveAdjoint(q,y,args);% one backward simulation for p
+%             
+%             L2NormInTimeP = sqrt(args.dt*sum((p.spatial).*(p.spatial)));
+%             for k=1:(args.N+1)    % check norm 0           
+%                 if (L2NormInTimeP(k) <= args.epsilon)
+%                     L2NormInTimeP(k) = args.alpha - args.epsilon;
+%                 end
+%             end
+%             ActiveSet = repmat(L2NormInTimeP > args.alpha,args.nmax+2,1);
+%             F = q - gamma/2*repmat(max(0,1-args.alpha./L2NormInTimeP),...
+%                 args.nmax+2,1).*(p.spatial);
+%             normFprev = normF;
+%             normF = sqrt(sum(args.dt*sum(F.^2)))
+%             if((normF < args.tolNewton) || (iter > args.iterNewton) || ...
+%                     abs(normF - normFprev) < 1e-4)
+%                 update = 0;
+%             end
+%         end % end Newton loop
+%         myvisu(y.spatial,p.spatial,q,gamma,args);
+%     end % end gamma loop
 end
 
 function ClearClose()   
@@ -206,6 +211,13 @@ function args = CreateParameters()
     args.optimOpt.Display = 'off';
     %optimOpt.Algorithm = 'levenberg-marquardt';
     args.optimOpt.JacobMult = [];
+    
+    % default init
+    args.y0 = zeros(1,args.N+1);
+    args.yobs = zeros(1,args.N+1);
+    args.yobs = zeros(1,args.N+1);
+    args.yspecobs = zeros(1,args.N-2)';
+    args.q = 0.0*ones(args.nmax+2, args.N+1);
 
 end
 
@@ -249,7 +261,8 @@ function matrices = BuildMatrices(args)
     mdiagm1 = -6./(2*jm1+5);
     mdiagm2 = -2./(2*jm2+1) + 2*(2*jm2-1)./((2*jm2+1).*(2*jm2+5));
     mdiagm3 = 2*(2*jm3-3)./((2*jm3-1).*(2*jm3+1));
-    M =args.D*spdiags([mdiagm3' mdiagm2' mdiagm1' mdiag0' mdiag1' mdiag2' mdiag3'],...
+    M =args.D*spdiags([mdiagm3' mdiagm2' mdiagm1' mdiag0'...
+        mdiag1' mdiag2' mdiag3'],...
         -3:3, args.N-2, args.N-2);
 
     % matrix for linear transport term 
@@ -279,128 +292,139 @@ function matrices = BuildMatrices(args)
     % Fill in the structure
     matrices.A = A;
     matrices.M = M;
-    matrices.MTInv = inv(matrices.M');
+    matrices.MT = M';
+    matrices.MTInv = inv(M');
     matrices.S = S;
     matrices.P = P;
+    matrices.PT = P';
     matrices.test = test;
     matrices.trial = trial;
-    matrices.testT = test';
     matrices.trialT = trial';
-    matrices.Imp = matrices.M - 0.5*args.dt*matrices.P + 0.5*args.dt*matrices.S;
-    matrices.Exp = matrices.M + 0.5*args.dt*matrices.P - 0.5*args.dt*matrices.S;
-    matrices.ImpT = matrices.M' - 0.5*args.dt*matrices.P' + 0.5*args.dt*matrices.S';
-    matrices.ExpT = matrices.M' + 0.5*args.dt*matrices.P' - 0.5*args.dt*matrices.S';
-    matrices.trialTInv = pinv(matrices.trialT);
-    matrices.Pdt = 0.5*args.dt*0.5*matrices.P;
-    matrices.trialTInvTPT = (matrices.trialTInv')*(matrices.P');
-    matrices.solverexp=args.coeffNL*0.5*args.dt*0.5*matrices.P*matrices.trialTInv;
-    matrices.solver=args.coeffNL*matrices.Pdt*matrices.trialTInv;
-    matrices.solvertangent = args.coeffNL*0.5*args.dt*matrices.P*matrices.trialTInv;
-    matrices.solvertangentadjoint = args.coeffNL*0.5*args.dt*matrices.trial;
-    matrices.sizeTA = size(matrices.trialTInvTPT,2);
-    matrices.sizeT = size(matrices.trialT,2);
+    matrices.testT = test';
+    matrices.testTInv = pinv(test');
+    matrices.trialT = trial';
+    matrices.trialTInv = pinv(trial');
+    matrices.left=0.5*(M +args.dt*S);
+    matrices.leftInv = inv(matrices.left);
+    matrices.leftTInv = inv(matrices.left');
+    matrices.right=0.5*(M -args.dt*S);
+    matrices.rightT=matrices.right';
+    matrices.M_leftTinv_dt = matrices.leftTInv*args.dt;
+    matrices.M_leftTinv_rightT = matrices.leftTInv*(matrices.rightT);
 
 end
 
 %% %%%%%%%%%%%%%%%% solveState functions %%%%%%%%%%%%%%%%
 function y = solveState(q, args)
-
-    nmax=args.nmax;
-    N=args.N;
-    matrices = args.matrices;
-
-    yspec0 = matrices.trialT\(args.y0)';
-
-    qspec = matrices.trialT\q';%zeros(nmax+1, N-2);
-    qspec=qspec';
-
-    y.spatial = zeros(nmax+2,N+1);
-    y.spec = zeros(nmax+2,N-2);
-    y.spatial(1,:) = args.y0;
-    y.spec(1,:) = yspec0;
-    %% Time loop
-    yspecm1 = yspec0;
-    for i=2:nmax+2
-        b = explicitpart(yspecm1,qspec(i,:)', qspec(i-1,:)',args);
-        yspeci = fsolve(@(x) fsolverFun(x,b,args),yspecm1,args.optimOpt);
-        yi = matrices.trialT*yspeci;
-        yspecm1 = yspeci;
-        y.spec(i,:) = yspeci';
-        y.spatial(i,:) = yi';
-    end
-end
-
-function f = explicitpart(y,qn,qnm1,args)
-    matrices = args.matrices;
-    f = matrices.Exp*y...
-       + matrices.solverexp*((matrices.trialT*y).^2)...
-       + 0.5*args.dt*(matrices.M)*qn + 0.5*args.dt*(matrices.M)*qnm1;
-end
-
-function [F,J] = fsolverFun(u, b, args)
-    matrices = args.matrices;
-    Tu = matrices.trialT*u;
-    F = matrices.Imp*u - matrices.solver*(Tu.^2) - b;
-    J = matrices.Imp - 2.0*matrices.solver*(repmat(Tu, 1, size(matrices.trialT,2)).*matrices.trialT);
-end
-
-%% %%%%%%%%%%%%%%%% solveAdjoint functions %%%%%%%%%%%%%%%%
-function p = solveAdjoint(q,y,args)
+    % parameters
     dt=args.dt;
     nmax=args.nmax;
     N=args.N;
+    coeffNL=args.coeffNL;
     matrices = args.matrices;
+    
+    % state variables
+    y.spatial = zeros(nmax+2,N+1);% spatial domain
+    y.spec = zeros(nmax+2,N-2);% spectral domain
+    
+    % initialization
+    yspec0 = matrices.trialT\(args.y0)';
+    y.spatial(1,:) = args.y0;
+    y.spec(1,:) = yspec0; 
+    qspec = matrices.trialT\q';
+    qspec=qspec';
 
-    yspecrev = y.spec(end:-1:1,:);
+    % first time step in the spectral space, semi implicit
+    NLterm = (args.y0).^2;
+    pNLterm=coeffNL*matrices.trialTInv*NLterm';
+    yspec1 = matrices.leftInv*((0.5*matrices.M)*yspec0 ...
+            + 0.5*dt*(0.5*matrices.P*pNLterm + matrices.P*yspec0...
+            + matrices.M*qspec(1,:)'));
+    y1 = matrices.trialT*yspec1;
+    y.spatial(2,:) = y1;
+    y.spec(2,:) = yspec1;
 
-    %first step
-    b = -matrices.A*(y.spec(end,:)' - args.yspecobs);
-    pspec0 = fsolve(@(x) fsolverFunAdjoint(x,yspecrev(1,:)',b,args),...
-        y.spec(end,:)',args.optimOpt);
-    p0 = matrices.testT*pspec0;
-    p.spatial = zeros(nmax+2,N+1);
-    p.spec = zeros(nmax+2,N-2);
+    % Time loop for interior steps - Crank Nicolson Leap Frog scheme
+    ym1 = y1;
+    yspecm1 = yspec1;
+    yspecm2 = yspec0;
+    for i=2:nmax
+        NLterm = ym1.*ym1;
+        pNLterm=coeffNL*matrices.trialTInv*NLterm;
+        yspeci = (matrices.leftInv)*( (matrices.right)*yspecm2 ...
+          + dt*(0.5*matrices.P*pNLterm...
+          + matrices.P*yspecm1 ...
+          + matrices.M*qspec(i,:)') );
+        yi = matrices.trialT*yspeci;
+        ym1 = yi;
+        yspecm2 = yspecm1;
+        yspecm1 = yspeci;
+        y.spec(i+1,:) = yspeci;
+        y.spatial(i+1,:) = yi;
+    end
+
+    %last step 
+    minv=inv(matrices.M);
+    NLterm = ym1.^2;
+    pNLterm=coeffNL*matrices.trialTInv*NLterm;                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   
+    yspecend = (minv)*((matrices.right)*yspecm2 +...
+                0.5*dt*(0.5*matrices.P*pNLterm + matrices.P*yspecm1)...
+                + 0.5*matrices.M*yspecm1...
+                + 1.0*0.5*dt*matrices.M*qspec(nmax+1,:)');
+    yend = matrices.trialT*yspecend;
+    y.spec(end,:) = yspecend;
+    y.spatial(end,:) = yend;
+end
+
+
+%% %%%%%%%%%%%%%%%% solveAdjoint functions %%%%%%%%%%%%%%%%
+function p = solveAdjoint(q,y,args)
+    % parameters
+    dt=args.dt;
+    nmax=args.nmax;
+    N=args.N;
+    coeffNL = args.coeffNL;
+    matrices = args.matrices;
+    
+    % state variables
+    p.spatial = zeros(nmax+1,N+1);
+    p.spec = zeros(nmax+1,N-2);
+
+    yrev = y.spatial(end:-1:1,:);
+
+    % initialization 
+    pspec0= -matrices.MTInv*(matrices.A*(y.spec(end,:)' - args.yspecobs));
+    p0 = (matrices.testT)*(pspec0);
     p.spatial(1,:) = p0;
     p.spec(1,:) = pspec0;
 
-    %% Time loop
-    pspec1 = pspec0;
-    for i=2:nmax+1
-        b = explicitpartAdjoint(pspec1,yspecrev(i,:)',args);
-        pspec = fsolve(@(x) fsolverFunAdjoint(x,yspecrev(i,:)',b,...
-           args),pspec1,args.optimOpt);
-        pp = matrices.testT*pspec;
-        pspec1 = pspec;
-        p.spec(i,:) = pspec';
-        p.spatial(i,:) = pp';
+    % first step
+    NLterm = 0.5*2.0*yrev(2,:)'.*(matrices.trialTInv'*(matrices.PT*pspec0));
+    pNLterm=coeffNL*matrices.trial*NLterm;
+    pspec1 = matrices.leftTInv*(0.5*matrices.MT*pspec0 +...
+        0.5*dt*(matrices.PT*pspec0 + pNLterm));
+    p1 = matrices.testT*pspec1;
+    p.spatial(2,:) = p1;
+    p.spec(2,:) = pspec1;
+    
+    pspecm1 = pspec1;
+    pspecm2 = pspec0;
+    %Time loop
+    for i = 2:nmax
+        NLterm = 0.5*2.0*yrev(i+1,:)'.*(matrices.trialTInv'*(matrices.PT*pspecm1));
+        pNLterm=coeffNL*matrices.trial*NLterm;
+        pspeci = matrices.M_leftTinv_rightT*pspecm2...
+            + matrices.M_leftTinv_dt* (matrices.PT*pspecm1 + pNLterm);
+        pi = matrices.testT*pspeci;
+        pspecm2 = pspecm1;
+        pspecm1 = pspeci; 
+        p.spec(i+1,:) = pspeci;
+        p.spatial(i+1,:) = pi;
     end
-     pspecend = matrices.MTInv*(matrices.ExpT*p.spec(nmax+1,:)' +...
-         0.5*dt*matrices.trial*((matrices.trialT*y.spec(1,:)').*...
-         (matrices.trialTInvTPT*p.spec(nmax+1,:)')));
-     pend = matrices.testT*pspecend;
-     p.spec(end,:) = pspecend';
-     p.spatial(end,:) = pend';
- 
-     p.spec = p.spec(end:-1:1,:);
-     p.spatial = p.spatial(end:-1:1,:);
+    p.spec = p.spec(end:-1:1,:);
+    p.spatial = p.spatial(end:-1:1,:);
 end
 
-function f = explicitpartAdjoint(p,u,args)
-    matrices = args.matrices;
-    Tu = matrices.trialT*u;
-    Tp = matrices.trialTInvTPT*p;
-    f = matrices.ExpT*p + args.coeffNL*0.5*args.dt*matrices.trial*...
-        (Tu.*Tp);
-end
-
-function [F,J] = fsolverFunAdjoint(p,y,b,args)
-    matrices = args.matrices;
-    Ty = matrices.trialT*y;
-    Tp = matrices.trialTInvTPT*p;
-    F = matrices.ImpT*p - args.coeffNL*0.5*args.dt*matrices.trial*(Ty.*Tp) - b;
-    J = matrices.ImpT - args.coeffNL*0.5*args.dt*matrices.trial*...
-        (repmat(Ty,1,size(matrices.trialTInvTPT,2)).*matrices.trialTInvTPT);
-end
 
 %% %%%%%%%%%%%%%%%% CheckGradient functions %%%%%%%%%%%%%%%%
 function j = computeJ(q,y,args)
@@ -411,17 +435,19 @@ end
 function g = computeJp(dq,q,y,p,args)
     nmax = args.nmax;
     dt = args.dt;
-    M = args.matrices.M;
-    g = 0.0;
+    matrices = args.matrices;
+    M = matrices.M;
+    dq1 = matrices.trialT\dq(1,:)';
+    g = -0.5*dt*p.spec(1,:)*M*dq1;
     
-    for i=2:nmax+2
-       pspeci = p.spec(i,:);
-       q1 = dq(i,:);
-       q2 = dq(i-1,:);
-       qspec1 = args.matrices.trialT\q1';
-       qspec2 = args.matrices.trialT\q2';
-       g = g - 0.5*dt*pspeci*M*qspec1 - 0.5*dt*pspeci*M*qspec2;
+    for i=2:nmax
+        pi = p.spec(i,:);
+        dqi = dq(i,:);
+        dqspeci = matrices.trialT\dqi';
+        g = g - dt*pi*M*dqspeci;
     end
+    dqend =  matrices.trialT\dq(nmax+1,:)';
+    g = g -0.5*dt*p.spec(nmax+1,:)*M*dqend;
 end
 
 %% %%%%%%%%%%%%%%%% solveTangent functions %%%%%%%%%%%%%%%%
@@ -452,24 +478,6 @@ function dy = solveTangent(q, y, dq, args)
         end
 end
 
-function f = explicitpartTangent(dyspec,yspec,dqn,dqnp1,args)
-    matrices = args.matrices;
-    dt = args.dt;
-    f = matrices.Exp*dyspec...
-       + args.coeffNL*0.5*dt*matrices.P*...
-       (matrices.trialTInv*((matrices.trialT*yspec).*...
-       (matrices.trialT*dyspec)))...
-       + 0.5*dt*(matrices.M)*dqn + 0.5*dt*(matrices.M)*dqnp1;
-end
-
-function [F,J] = fsolverFunTangent(yspec,dy,b,args)
-    matrices = args.matrices;
-    Ty = matrices.trialT*yspec;
-    Tdy = matrices.trialT*dy;
-    F = matrices.Imp*dy - matrices.solvertangent*(Ty.*Tdy) - b;
-    J = matrices.Imp - matrices.solvertangent*...
-        (repmat(Ty,1,matrices.sizeT).*matrices.trialT);
-end
 
 %% %%%%%%%%%%%%%%%% solveDFH functions %%%%%%%%%%%%%%%%
 function dp = solveDFH(q, y, p, dq, dy, args)
@@ -525,27 +533,6 @@ function dp = solveDFH(q, y, p, dq, dy, args)
 
 end
 
-function f = explicitpartDFH(dp,pexp,pimp,dy,y,args)
-    matrices = args.matrices;
-    Tdy = matrices.trialT*dy;
-    Tdp = matrices.trialTInvTPT*dp;
-    Ty = matrices.trialT*y;
-    Tpexp = matrices.trialTInvTPT*pexp;
-    Tpimp = matrices.trialTInvTPT*pimp;
-    nltermexp = args.coeffNL*0.5*args.dt*matrices.trial*...
-        (Tdy.*Tpexp + Ty.*Tdp);
-    nltermimp = args.coeffNL*0.5*args.dt*matrices.trial*(Tdy.*Tpimp);
-    f = matrices.ExpT*dp + nltermexp + nltermimp;
-end
-
-function [F,J] = fsolverFunDFH(dp,y,b,args)
-    matrices = args.matrices;
-    Ty = matrices.trialT*y;
-    Tdp = matrices.trialTInvTPT*dp;
-    F = matrices.ImpT*dp - matrices.solvertangentadjoint*(Ty.*Tdp) - b;
-    J = matrices.ImpT - matrices.solvertangentadjoint*...
-        (repmat(Ty,1,matrices.sizeTA).*matrices.trialTInvTPT);
-end
 
 %% %%%%%%%%%%%%%%%% CheckHessian functions %%%%%%%%%%%%%%%%
 function h = computeJpp(q, y, p, dq, dy, dp, args)
@@ -585,7 +572,7 @@ function GradF = ComputeOptCondGradient(q,dq,y,p,...
 end
 
 
-function myvisu(y,p,q,gamma,args,plottedsteps = 1)
+function myvisu(y,p,q,gamma,args,plottedsteps)
     %% 3D - Vizualization
     plottedsteps=1:2:size(y,1);
     [tg,xg] = meshgrid(args.tdata(plottedsteps),args.chebyGL(1:end));
