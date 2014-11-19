@@ -5,6 +5,7 @@ function [q,y,args] = optimizationKdV()
     args = CreateParameters();
     args.matrices = BuildMatrices(args);
     
+    
 %% Uncomment if you want to test one forward/backward simulation of a soliton    
 %     args.kappa = 1.0;
 %     args.x0 = -2.0;
@@ -12,7 +13,7 @@ function [q,y,args] = optimizationKdV()
 %     args.y0 = 12*args.kappa^2*sech(args.kappa*(args.chebyGL - args.x0)).^2;%valeurs aux chebypoints
 %     q = 0.0*ones(args.nmax+2, args.N+1);
 %     y = solveState(q,args);
-%     plottedsteps=1:2:size(y.spatial,1);
+%     plottedsteps=1:1:size(y.spatial,1);
 %     [tg,xg] = meshgrid(args.tdata(plottedsteps),args.chebyGL(1:end));
 %     set(gcf,'Position',[200,200,1500,1000])
 %     subplot(1,2,1);
@@ -21,7 +22,9 @@ function [q,y,args] = optimizationKdV()
 %     args.yspecobs = args.matrices.trialT\(args.yobs)'; 
 %     p = solveAdjoint(q,y,args);
 %     subplot(1,2,2);
-%     surf(xg,tg,p.spatial(plottedsteps,:)');
+%     plottedsteps2=1:1:size(p.spatial,1);
+%     [tg2,xg2] = meshgrid(args.tdata(plottedsteps2),args.chebyGL(1:end));
+%     surf(xg2,tg2,p.spatial(plottedsteps2,:)');
 
 
 %% Uncomment if you want to test one forward simulation of a flow
@@ -43,10 +46,10 @@ function [q,y,args] = optimizationKdV()
 
 %% Uncomment if you want to check gradient/hessian
     q = 1.0*ones(args.nmax+2, args.N+1);
-    CheckGradient(q, q, @solveState, @solveAdjoint, ...
-        @computeJ, @computeJp, args);
-%    CheckHessian(q, 100.0*q, @solveState, @solveAdjoint, ...
-%        @solveTangent, @solveDFH, @computeJ, @computeJpp, args);
+    %CheckGradient(q, q, @solveState, @solveAdjoint, ...
+    %    @computeJ, @computeJp, args);
+    CheckHessian(q, q, @solveState, @solveAdjoint, ...
+        @solveTangent, @solveDFH, @computeJ, @computeJpp, args);
 
 %% Uncomment if goal is: make a soliton vanish at fixed time
 %     args.kappa = 1.0;
@@ -138,7 +141,7 @@ function [q,y,args] = optimizationKdV()
 %                     L2NormInTimeP(k) = args.alpha - args.epsilon;
 %                 end
 %             end
-%             ActiveSet = repmat(L2NormInTimeP > args.alpha,args.nmax+2,1);
+%             ActiveSet = repmat(L2NormInTimeP > args.al    p.spatial(end,:) = p.spatial()pha,args.nmax+2,1);
 %             F = q - gamma/2*repmat(max(0,1-args.alpha./L2NormInTimeP),...
 %                 args.nmax+2,1).*(p.spatial);
 %             normFprev = normF;
@@ -214,6 +217,7 @@ function args = CreateParameters()
     
     % default init
     args.y0 = zeros(1,args.N+1);
+    args.dy0 = zeros(1,args.N+1);
     args.yobs = zeros(1,args.N+1);
     args.yobs = zeros(1,args.N+1);
     args.yspecobs = zeros(1,args.N-2)';
@@ -393,8 +397,10 @@ function p = solveAdjoint(q,y,args)
     yrev = y.spatial(end:-1:1,:);
 
     % initialization 
+    plot(y.spatial(end,:) - args.yobs)
     pspec0= -matrices.MTInv*(matrices.A*(y.spec(end,:)' - args.yspecobs));
     p0 = (matrices.testT)*(pspec0);
+    plot(p0)
     p.spatial(1,:) = p0;
     p.spec(1,:) = pspec0;
 
@@ -452,30 +458,63 @@ end
 
 %% %%%%%%%%%%%%%%%% solveTangent functions %%%%%%%%%%%%%%%%
 function dy = solveTangent(q, y, dq, args)
-    nmax = args.nmax;
-    N = args.N;
+    dt=args.dt;
+    nmax=args.nmax;
+    N=args.N;
+    coeffNL = args.coeffNL;
     matrices = args.matrices;
-    
-    dyspec0 = matrices.trialT\args.dy0';
-    dqspec = matrices.trialT\dq';
-    dqspec=dqspec';
 
+    % Storage matrices
     dy.spatial = zeros(nmax+2,N+1);
     dy.spec = zeros(nmax+2,N-2);
+
+    % initial condition and source in the spectral space
+    dyspec0=matrices.trialTInv*(args.dy0)';
+    dqspec = matrices.trialTInv*dq';
+    dqspec=dqspec';
     dy.spatial(1,:) = args.dy0;
     dy.spec(1,:) = dyspec0;
-    %% Time loop
-    dyspecm1 = dyspec0;
-        for i=2:nmax+2
-            b = explicitpartTangent(dyspecm1,y.spec(i-1,:)',...
-                dqspec(i,:)',dqspec(i-1,:)',args);
-            dyspeci = fsolve(@(x) fsolverFunTangent(y.spec(i,:)',x,b,args)...
-                ,dyspecm1,args.optimOpt);
-            dyi = matrices.trialT*dyspeci;
-            dyspecm1 = dyspeci;
-            dy.spec(i,:) = dyspeci;
-            dy.spatial(i,:) = dyi;
-        end
+
+    %first time step in the spectral space, semi implicit
+    NLterm = y.spatial(1,:).*(args.dy0);
+    pNLterm = coeffNL*matrices.trialTInv*NLterm';
+    dyspec1 = matrices.leftInv*((0.5*matrices.M)*dyspec0 ...
+        + 0.5*dt*(matrices.P*pNLterm + matrices.P*dyspec0 ...
+        + matrices.M*dqspec(1,:)'));
+    dy1 = matrices.trialT*dyspec1;
+    dy.spatial(2,:) = dy1;
+    dy.spec(2,:) = dyspec1;
+
+    % Time loop
+    dym1 = dy1;
+    dyspecm1 = dyspec1;
+    dyspecm2 = dyspec0;
+    for i=2:nmax
+        NLterm = y.spatial(i,:)'.*dym1;
+        pNLterm = coeffNL*matrices.trialTInv*NLterm;
+        dyspeci = (matrices.leftInv)*( (matrices.right)*dyspecm2 ...
+          + dt*(matrices.P*pNLterm...
+          + matrices.P*dyspecm1 ...
+          + matrices.M*dqspec(i,:)') );
+        dyi = matrices.trialT*dyspeci;
+        dym1 = dyi;
+        dyspecm2 = dyspecm1;
+        dyspecm1 = dyspeci;
+        dy.spec(i+1,:) = dyspeci;
+        dy.spatial(i+1,:) = dyi;
+    end
+    
+    % last step
+    minv=inv(matrices.M);
+    NLterm = y.spatial(nmax+1,:)'.*dym1;
+    pNLterm=coeffNL*matrices.trialTInv*NLterm;                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   
+    dyspecend = (minv)*((matrices.right)*dyspecm2...
+                    + 0.5*dt*(matrices.P*pNLterm + matrices.P*dyspecm1)...
+                    + 0.5*matrices.M*dyspecm1...
+                    + 1.0*0.5*dt*matrices.M*dqspec(nmax+1,:)');
+     dyend = matrices.trialT*dyspecend;
+     dy.spec(end,:) = dyspecend;
+     dy.spatial(end,:) = dyend;
 end
 
 
@@ -484,53 +523,55 @@ function dp = solveDFH(q, y, p, dq, dy, args)
     dt=args.dt;
     nmax=args.nmax;
     N=args.N;
+    coeffNL = args.coeffNL;
     matrices = args.matrices;
 
-    yspecrev = y.spec(end:-1:1,:);
-    dyspecrev = dy.spec(end:-1:1,:);
-    pspecrev = p.spec(end:-1:1,:);
+    %source term
+    yrev = y.spatial(end:-1:1,:);
+    dyrev = dy.spatial(end:-1:1,:);
+    pspecrev=p.spec(end:-1:1,:);
 
-    %first step
-    b = -matrices.A*dyspecrev(1,:)' + args.coeffNL*0.5*dt*matrices.trial*...
-        (matrices.trialT*dyspecrev(1,:)'.*...
-        (matrices.trialTInvTPT*pspecrev(1,:)'));
-    dpspec0 = fsolve(@(x) fsolverFunDFH(x,yspecrev(1,:)',b,args),...
-        zeros(args.N-2,1),args.optimOpt);
-    dp0 = matrices.testT*dpspec0;
-    dp.spatial = zeros(nmax+2,N+1);
-    dp.spec = zeros(nmax+2,N-2);
+    % Storage array
+    dp.spatial = zeros(nmax+1,N+1);
+    dp.spec = zeros(nmax+1,N-2);
+
+    %initial condition
+    dpspec0= matrices.MTInv*(matrices.A*(-dy.spec(end,:)'));
+    dp0 = (matrices.testT)*(dpspec0);
     dp.spatial(1,:) = dp0;
     dp.spec(1,:) = dpspec0;
 
-    %% Time loop
-    dpspecm1 = dpspec0;
-      for i=2:nmax+1
-       b = explicitpartDFH(dpspecm1,pspecrev(i-1,:)',...
-           pspecrev(i,:)', ...
-           dyspecrev(i,:)',yspecrev(i,:)',args);
-       dpspeci = fsolve(@(x) fsolverFunDFH(x,yspecrev(i,:)',b,args),...
-           dpspecm1,args.optimOpt);
-       dpi = matrices.testT*dpspeci;
-       dpspecm1 = dpspeci;
-       dp.spec(i,:) = dpspeci;
-       dp.spatial(i,:) = dpi;
-      end
+    %first step
 
-    %last step
-    dpspecend = matrices.MTInv*(  matrices.ExpT*dp.spec(nmax+1,:)' +...
-        args.coeffNL*0.5*dt*matrices.trial*(...
-          (matrices.trialT*yspecrev(end,:)').*...
-          (matrices.trialTInvTPT*dp.spec(nmax+1,:)')...
-        + (matrices.trialT*dyspecrev(end,:)').*...
-        (matrices.trialTInvTPT*pspecrev(nmax+1,:)')...
-                                )   );
-    dpend = matrices.testT*dpspecend;
-    dp.spec(end,:) = dpspecend;
-    dp.spatial(end,:) = dpend;
+    NLterm = yrev(2,:)'.*(matrices.trialTInv'*(matrices.PT*dpspec0));
+    NLterm2 = dyrev(2,:)'.*...
+        (matrices.trialTInv'*(matrices.PT*pspecrev(1,:)'));
+    pNLterm = coeffNL*matrices.trial*(NLterm+NLterm2);
 
+    dpspec1 = matrices.leftTInv*(0.5*matrices.MT*dpspec0 + ...
+        0.5*dt*(matrices.PT*dpspec0 + pNLterm));
+    dp1 = matrices.testT*dpspec1;
+
+    dp.spatial(2,:) = dp1;
+    dp.spec(2,:) = dpspec1;
+    dpspec2 = dpspec0;
+
+    for i = 2:(nmax)
+        NLterm = yrev(i+1,:)'.*(matrices.trialTInv'*(matrices.PT*dpspec1));
+        NLterm2 = dyrev(i+1,:)'.*...
+            (matrices.trialTInv'*(matrices.PT*pspecrev(i,:)'));
+        pNLterm = coeffNL*matrices.trial*(NLterm+NLterm2);
+
+        dpspeci=matrices.M_leftTinv_rightT*dpspec2...
+                + matrices.M_leftTinv_dt* (matrices.PT*dpspec1 + pNLterm );
+        dpi = matrices.testT*dpspeci;
+        dpspec2 = dpspec1;
+        dpspec1 = dpspeci; 
+        dp.spec(i+1,:) = dpspeci;
+        dp.spatial(i+1,:) = dpi;
+    end
     dp.spec = dp.spec(end:-1:1,:);
     dp.spatial = dp.spatial(end:-1:1,:);
-
 end
 
 
@@ -540,15 +581,17 @@ function h = computeJpp(q, y, p, dq, dy, dp, args)
     dt=args.dt;
     matrices = args.matrices;
     M = matrices.M;
-    h=0.0;
-    for i=2:nmax+2
-        dpspeci = dp.spec(i,:);
-        dq1 = dq(i,:);
-        dq2 = dq(i-1,:);
-        dqspec1 = matrices.trialT\dq1';
-        dqspec2 = matrices.trialT\dq2';
-        h = h - 0.5*dt*dpspeci*M*dqspec1 - 0.5*dt*dpspeci*M*dqspec2;
+    
+    dq1 = matrices.trialT\dq(1,:)';
+    h = -0.5*dt*dp.spec(1,:)*M*dq1;
+    for i=2:nmax
+        dpi = dp.spec(i,:);
+        dqi = dq(i,:);
+        dqspeci = matrices.trialT\(dqi');
+        h = h - dt*dpi*M*dqspeci;
     end
+    dqend =  matrices.trialT\dq(nmax+1,:)';
+    h = h -0.5*dt*dp.spec(nmax+1,:)*M*dqend;
 end
 
 %% %%%%%%%%%%%%%%%% Misc %%%%%%%%%%%%%%%%
