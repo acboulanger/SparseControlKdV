@@ -45,16 +45,16 @@ function [q,y,args] = optimizationKdV()
 
 
 %% Uncomment if you want to check gradient/hessian
-    q = 1.0*ones(args.nmax+1, args.N+1);
-    CheckGradient(q, q, @solveState, @solveAdjoint, ...
-        @computeJ, @computeJp, args);
-    CheckHessian(q, q, @solveState, @solveAdjoint, ...
-        @solveTangent, @solveDFH, @computeJ, @computeJpp, args);
+%    q = 1.0*ones(args.nmax+1, args.N+1);
+%    CheckGradient(q, q, @solveState, @solveAdjoint, ...
+%        @computeJ, @computeJp, args);
+%    CheckHessian(q, q, @solveState, @solveAdjoint, ...
+%        @solveTangent, @solveDFH, @computeJ, @computeJpp, args);
 
 %% Uncomment if goal is inverseproblem :find the source that created this
 %% wave profile
      q = 0.0*ones(args.nmax+2, args.N+1);
-     bumpvalue = 10.0;
+     bumpvalue = 100.0;
      bumpleft = args.N/2;
      bumpright = args.N/2 + 5;
      q(:,bumpleft) = bumpvalue;
@@ -349,15 +349,15 @@ function y = solveState(q, args)
     NLterm = ym1.^2;
     pNLterm=coeffNL*matrices.trialTInv*NLterm;
     
-     rhs = ((matrices.right)*yspecm2 +...
-                 0.5*dt*(0.5*matrices.P*pNLterm + matrices.P*yspecm1)...
-                 + 0.5*matrices.M*yspecm1...
-                 + 1.0*0.5*dt*matrices.M*qspec(nmax+1,:)');
-     [yspecend,success,residual,itermeth] = gmres(matrices.M,rhs,[],args.tolgmres,N-2);
-%      yspecend = (matrices.M)\((matrices.right)*yspecm2 +...
+%      rhs = ((matrices.right)*yspecm2 +...
 %                  0.5*dt*(0.5*matrices.P*pNLterm + matrices.P*yspecm1)...
 %                  + 0.5*matrices.M*yspecm1...
 %                  + 1.0*0.5*dt*matrices.M*qspec(nmax+1,:)');
+%      [yspecend,success,residual,itermeth] = gmres(matrices.M,rhs,[],args.tolgmres,N-2);
+     yspecend = (matrices.M)\((matrices.right)*yspecm2 +...
+                 0.5*dt*(0.5*matrices.P*pNLterm + matrices.P*yspecm1)...
+                 + 0.5*matrices.M*yspecm1...
+                 + 1.0*0.5*dt*matrices.M*qspec(nmax+1,:)');
     yend = matrices.trialT*yspecend;
     y.spec(end,:) = yspecend;
     y.spatial(end,:) = yend;
@@ -387,9 +387,9 @@ function p = solveAdjoint(q,y,args)
     % M is ill conditionned. One solve the projection problem
     % by minimal residuals
     mt = matrices.MT;
-    rhs = -dt*matrices.A*(yspecrev(1,:)' - yspecobsrev(1,:)');
-    [pspec0,success,residual,itermeth] = gmres(mt,rhs,[],args.tolgmres,N-2);
-    %pspec0 = - mt\(dt*matrices.A'*(yspecrev(1,:)' - yspecobsrev(1,:)'));
+%     rhs = -dt*matrices.A*(yspecrev(1,:)' - yspecobsrev(1,:)');
+%     [pspec0,success,residual,itermeth] = gmres(mt,rhs,[],args.tolgmres,N-2);
+    pspec0 = - mt\(dt*matrices.A'*(yspecrev(1,:)' - yspecobsrev(1,:)'));
     p0 = (matrices.testT)*(pspec0);
     p.spatial(1,:) = p0;
     p.spec(1,:) = pspec0;
@@ -504,16 +504,16 @@ function dy = solveTangent(q, y, dq, args)
     NLterm = y.spatial(nmax+1,:)'.*dym1;
     pNLterm=coeffNL*matrices.trialTInv*NLterm; 
     
-      rhs = ((matrices.right)*dyspecm2...
-                      + 0.5*dt*(matrices.P*pNLterm + matrices.P*dyspecm1)...
-                      + 0.5*matrices.M*dyspecm1...
-                      + 1.0*0.5*dt*matrices.M*dqspec(nmax+1,:)');
-      [dyspecend,success,residual,itermeth] = gmres(matrices.M,rhs,[],args.tolgmres,N-2);
-    
-%      dyspecend = (matrices.M)\((matrices.right)*dyspecm2...
-%                      + 0.5*dt*(matrices.P*pNLterm + matrices.P*dyspecm1)...
-%                      + 0.5*matrices.M*dyspecm1...
-%                      + 1.0*0.5*dt*matrices.M*dqspec(nmax+1,:)');
+%       rhs = ((matrices.right)*dyspecm2...
+%                       + 0.5*dt*(matrices.P*pNLterm + matrices.P*dyspecm1)...
+%                       + 0.5*matrices.M*dyspecm1...
+%                       + 1.0*0.5*dt*matrices.M*dqspec(nmax+1,:)');
+%       [dyspecend,success,residual,itermeth] = gmres(matrices.M,rhs,[],args.tolgmres,N-2);
+%     
+     dyspecend = (matrices.M)\((matrices.right)*dyspecm2...
+                     + 0.5*dt*(matrices.P*pNLterm + matrices.P*dyspecm1)...
+                     + 0.5*matrices.M*dyspecm1...
+                     + 1.0*0.5*dt*matrices.M*dqspec(nmax+1,:)');
      dyend = matrices.trialT*dyspecend;
      dy.spec(end,:) = dyspecend;
      dy.spatial(end,:) = dyend;
@@ -540,9 +540,9 @@ function dp = solveDFH(q, y, p, dq, dy, args)
 
     %initial condition
     mt = matrices.MT;
-    rhs = -dt*matrices.A*(dyspecrev(1,:)');
-    [dpspec0,success,residual,itermeth] = gmres(mt,rhs,[],args.tolgmres,N-2);
-    %dpspec0= mt\(dt*matrices.A*(-dyspecrev(1,:)'));
+    %rhs = -dt*matrices.A*(dyspecrev(1,:)');
+    %[dpspec0,success,residual,itermeth] = gmres(mt,rhs,[],args.tolgmres,N-2);
+    dpspec0= mt\(dt*matrices.A*(-dyspecrev(1,:)'));
     dp0 = (matrices.testT)*(dpspec0);
     dp.spatial(1,:) = dp0;
     dp.spec(1,:) = dpspec0;
@@ -650,7 +650,7 @@ function myvisu(y,p,q,gamma,args,plottedsteps)
     view(-16,10);
     shading interp;
     
-    subplot(2,3,6), surf(xg,tg,y(plottedsteps,:)'-args.yobs(plottedsteps,:)');
+    subplot(2,2,4), surf(xg,tg,y(plottedsteps,:)'-args.yobs(plottedsteps,:)');
     xlabel('x');zlabel('Y - Yobs');
     title('Error');
     view(-16,10);
