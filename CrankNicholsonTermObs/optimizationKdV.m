@@ -362,7 +362,7 @@ function p = solveAdjoint(q,y,args)
     yspecrev = y.spec(end:-1:1,:);
 
     %first step
-    b = +matrices.A*(y.spec(end,:)' - args.yspecobs);
+    b = -matrices.A*(y.spec(end,:)' - args.yspecobs);
     pspec0 = fsolve(@(x) fsolverFunAdjoint(x,yspecrev(1,:)',b,args),...
         y.spec(end,:)',args.optimOpt);
     p0 = matrices.testT*pspec0;
@@ -428,7 +428,7 @@ function g = computeJp(dq,q,y,p,args)
        q2 = dq(i-1,:);
        qspec1 = args.matrices.trialT\q1';
        qspec2 = args.matrices.trialT\q2';
-       g = g + 0.5*dt*pspeci*M*qspec1 + 0.5*dt*pspeci*M*qspec2;
+       g = g - 0.5*dt*pspeci*M*qspec1 - 0.5*dt*pspeci*M*qspec2;
     end
 end
 
@@ -491,7 +491,7 @@ function dp = solveDFH(q, y, p, dq, dy, args)
     pspecrev = p.spec(end:-1:1,:);
 
     %first step
-    b = +matrices.A*dyspecrev(1,:)' + args.coeffNL*0.5*dt*matrices.trial*...
+    b = -matrices.A*dyspecrev(1,:)' + args.coeffNL*0.5*dt*matrices.trial*...
         (matrices.trialT*dyspecrev(1,:)'.*...
         (matrices.trialTInvTPT*pspecrev(1,:)'));
     dpspec0 = fsolve(@(x) fsolverFunDFH(x,yspecrev(1,:)',b,args),...
@@ -568,7 +568,7 @@ function h = computeJpp(q, y, p, dq, dy, dp, args)
         dq2 = dq(i-1,:);
         dqspec1 = matrices.trialT\dq1';
         dqspec2 = matrices.trialT\dq2';
-        h = h + 0.5*dt*dpspeci*M*dqspec1 + 0.5*dt*dpspeci*M*dqspec2;
+        h = h - 0.5*dt*dpspeci*M*dqspec1 - 0.5*dt*dpspeci*M*dqspec2;
     end
 end
 
