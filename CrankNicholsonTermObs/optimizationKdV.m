@@ -6,16 +6,16 @@ function [q,y,args] = optimizationKdV()
     args.matrices = BuildMatrices(args);
     
 %% Uncomment if you want to test one forward/backward simulation of a soliton    
-%    args.kappa = 1.0;
-%    args.x0 = -2.0;
-%    args.xend = 5.0;
-%    args.y0 = 12*args.kappa^2*sech(args.kappa*(args.chebyGL - args.x0)).^2;%valeurs aux chebypoints
-%    q = 1.0*ones(args.nmax+2, args.N+1);
-%    y = solveState(q,args);
-%    plottedsteps=1:2:size(y.spatial,1);
-%    [tg,xg] = meshgrid(args.tdata(plottedsteps),args.chebyGL(1:end));
-%    set(gcf,'Position',[200,200,1500,1000])
-%    surf(xg,tg,y.spatial(plottedsteps,:)');
+   args.kappa = 1.0;
+   args.x0 = -2.0;
+   args.xend = 5.0;
+   args.y0 = 12*args.kappa^2*sech(args.kappa*(args.chebyGL - args.x0)).^2;%valeurs aux chebypoints
+   q = 1.0*ones(args.nmax+2, args.N+1);
+   y = solveState(q,args);
+   plottedsteps=1:2:size(y.spatial,1);
+   [tg,xg] = meshgrid(args.tdata(plottedsteps),args.chebyGL(1:end));
+   set(gcf,'Position',[200,200,1500,1000])
+   surf(xg,tg,y.spatial(plottedsteps,:)');
 %    p = solveAdjoint(q,y,args);
 %    surf(xg,tg,p.spatial(plottedsteps,:)');
 
@@ -38,11 +38,11 @@ function [q,y,args] = optimizationKdV()
 
 
 %% Uncomment if you want to check gradient/hessian
-    q = 1.0*ones(args.nmax+2, args.N+1); 
-    CheckGradient(q, 100*q, @solveState, @solveAdjoint, ...
-        @computeJ, @computeJp, args);
-    CheckHessian(q, 100.0*q, @solveState, @solveAdjoint, ...
-        @solveTangent, @solveDFH, @computeJ, @computeJpp, args);
+%     q = 1.0*ones(args.nmax+2, args.N+1); 
+%     CheckGradient(q, 100*q, @solveState, @solveAdjoint, ...
+%         @computeJ, @computeJp, args);
+%     CheckHessian(q, 100.0*q, @solveState, @solveAdjoint, ...
+%         @solveTangent, @solveDFH, @computeJ, @computeJpp, args);
 
 %% Uncomment if goal is: make a soliton vanish at fixed time
 %     args.kappa = 1.0;
