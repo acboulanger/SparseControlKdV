@@ -35,11 +35,70 @@ function [u,y,args] = optimizationKdVCreateRealWaveProxMethod()
     fprintf('gamma = %d , delta = %d\n', gamma, delta);
     %     
     q = zeros(args.nmax+1,args.N+1);%initialization of the normal variable
-    u = proximalOp(q,args);
-%     %dq = ModifiedSteihaugCG(q,@solveState,@solveAdjoint,@solveTangent,@solveDFH);
+    qold = q;
 % 
-     y = solveState(u,args);% one forward simulation for y
-%     p = solveAdjoint(u,y,args);% one backward simulation for p
+    jold = args.inf;
+    sigma = args.sigma;% Trust region radius
+    sigmamax = args.sigmamax;
+    
+    for iter=1:(args.maxiter)
+        % compute the current iterate for the control
+        % u = P_gamma(q)
+        % where P_gamma is the proximal operator
+        u = proximalOp(q,args);
+        % solve state equation y=S(u)
+        y = solveState(u,args);% one forward simulation for y
+        
+        % compute reduced objective functional
+        % f(u) = 1/2|y - yd|^2 + gamma/2*|u|_{L2(L2)}^2 + alpha|u|_{L1(L2)}
+        j = computeJ(u,y,args);
+        norm12 = args.matrices.MassS*( args.dt*sum(u.*u) )';
+        uvec = u(:);
+        norm22 = 0.5*gamma*uvec'*args.matrices.Mass*uvec;
+        f = j + norm12 + norm22;
+        
+        if iter > 1
+            %check for descent in objective functional
+            sigmaold = sigma;
+            if(fold < (1-1e-11)*f)%not a descent direction
+                sigma = 0.2*sigma;
+                fprintf('\t Reject step since %1.9e >~ %1.9e \t %1.2e -> %1.2e \n',...
+                    f, fold, sigmaold, sigma);
+                q = qold;
+                u = uold;
+                y = yold;
+            else
+                %evaluate the decrease predicted
+                %by the quadratic model (at the old iterate q)
+                %m(dv)
+                du = proximalOpDerivative(q,dq,args);
+                DGdq = compute_reduced_hessian(dq,u,y,p,args);%TO DO
+                model = G'*du + 0.5*DGdq'*du;
+                rho = (f - fold)/model;
+                
+                if(abs(rho-1) < 0.2)%trust region is
+                    sigma = max(2*sigma, sigmamax);
+                elseif(abs(rho-1) > 0.6)
+                    sigma = 0.4*sigma;
+                end
+                fprintf('\t rho = %f, \t %1.2e ->1.2e \n', ...
+                    rho, sigmaold, sigma);
+            end
+        end
+            
+            qold = q;
+            uold = u;
+            yold = y;
+            fold = f;
+            
+            % reduced subgradient
+            %
+            % G(q) = q + \nabla f(P_gamma(a))
+            % we want G(q) = 0
+            
+    end
+        
+%       p = solveAdjoint(u,y,args);% one backward simulation for p
 end
 
 function ClearClose()   
@@ -236,7 +295,7 @@ function matrices = BuildMatrices(args)
     matrices.MassT = args.dt*speye(args.nmax+1);
     % construct the matrix A for the inner product in H (space and time)
     % (u,v)_H = u'Av
-    matrices.Mass = kron(matrices.MassT,matrices.MassS);%should be diag(MassT(i)*MassS)
+    matrices.Mass = kron(matrices.MassS,matrices.MassT);%should be diag(MassT(i)*MassS)
     
 end
 
@@ -293,15 +352,15 @@ function y = solveState(u, args)
     y.spec(1,:) = yspec0;
     u = ((args.matrices.B)*(u'))';%effect of indicator function
     
-    uspec = matrices.trialT\u';
-    uspec=uspec';
+    %uspec = matrices.trialT\u';
+    %uspec=uspec';
 
     % first time step in the spectral space, semi implicit
     NLterm = (args.y0).^2;
     pNLterm=coeffNL*matrices.trialTInv*NLterm';
     yspec1 = matrices.leftInv*((0.5*matrices.M)*yspec0 ...
             + 0.5*dt*(-0.5*matrices.Pnl*pNLterm + matrices.fP*yspec0...
-            + matrices.Msource*uspec(1,:)'));
+            + matrices.trial*matrices.MassSSource*u(1,:)'));
     y1 = matrices.trialT*yspec1;
     y.spatial(2,:) = y1;
     y.spec(2,:) = yspec1;
@@ -316,7 +375,7 @@ function y = solveState(u, args)
         yspeci = (matrices.leftInv)*( (matrices.right)*yspecm2 ...
           + dt*(-0.5*matrices.Pnl*pNLterm...
           + matrices.fP*yspecm1 ...
-          + matrices.Msource*uspec(i,:)') );
+          + matrices.trial*matrices.MassSSource*u(i,:)') );
         yi = matrices.trialT*yspeci;
         ym1 = yi;
         yspecm2 = yspecm1;
@@ -338,7 +397,7 @@ function y = solveState(u, args)
     yspecend = (matrices.Mreg)\((matrices.right)*yspecm2 +...
                 0.5*dt*(-0.5*matrices.Pnl*pNLterm + matrices.fP*yspecm1)...
                 + 0.5*matrices.M*yspecm1...
-                + 1.0*0.5*dt*matrices.Msource*uspec(nmax+1,:)');
+                + 1.0*0.5*dt*matrices.trial*matrices.MassSSource*u(nmax+1,:)');
     yend = matrices.trialT*yspecend;
     y.spec(end,:) = yspecend;
     y.spatial(end,:) = yend;
@@ -446,8 +505,8 @@ function dy = solveTangent(u, y, du, args)
     % initial condition and source in the spectral space
     dyspec0=matrices.trialTInv*(args.dy0)';
     du = (args.matrices.B*(du'))';%effect of indicator function
-    duspec = matrices.trialTInv*du';
-    duspec=duspec';
+    %duspec = matrices.trialTInv*du';
+    %duspec=duspec';
     dy.spatial(1,:) = args.dy0;
     dy.spec(1,:) = dyspec0;
 
@@ -456,7 +515,7 @@ function dy = solveTangent(u, y, du, args)
     pNLterm = coeffNL*matrices.trialTInv*NLterm';
     dyspec1 = matrices.leftInv*((0.5*matrices.M)*dyspec0 ...
         + 0.5*dt*(-matrices.Pnl*pNLterm + matrices.fP*dyspec0 ...
-        + matrices.Msource*duspec(1,:)'));
+        + matrices.trial*matrices.MassSSource*du(1,:)'));
     dy1 = matrices.trialT*dyspec1;
     dy.spatial(2,:) = dy1;
     dy.spec(2,:) = dyspec1;
@@ -471,7 +530,7 @@ function dy = solveTangent(u, y, du, args)
         dyspeci = (matrices.leftInv)*( (matrices.right)*dyspecm2 ...
           + dt*(-matrices.Pnl*pNLterm...
           + matrices.fP*dyspecm1 ...
-          + matrices.Msource*duspec(i,:)') );
+          + matrices.trial*matrices.MassS*du(i,:)') );
         dyi = matrices.trialT*dyspeci;
         dym1 = dyi;
         dyspecm2 = dyspecm1;
@@ -493,7 +552,7 @@ function dy = solveTangent(u, y, du, args)
     dyspecend = (matrices.Mreg)\((matrices.right)*dyspecm2...
                    + 0.5*dt*(-matrices.Pnl*pNLterm + matrices.fP*dyspecm1)...
                    + 0.5*matrices.M*dyspecm1...
-                   + 1.0*0.5*dt*matrices.Msource*duspec(nmax+1,:)');
+                   + 1.0*0.5*dt*matrices.trial*matrices.MassSSource*du(nmax+1,:)');
      dyend = matrices.trialT*dyspecend;
      dy.spec(end,:) = dyspecend;
      dy.spatial(end,:) = dyend;
