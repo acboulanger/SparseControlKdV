@@ -33,11 +33,12 @@ function [u,y,args] = optimizationKdVCreateRealWaveProxMethod()
     delta = args.delta;
     gamma = args.gamma;% regularization term in 1/gamma
     fprintf('gamma = %d , delta = %d\n', gamma, delta);
+    abstol=1e-6;
     %     
     q = zeros(args.nmax+1,args.N+1);%initialization of the normal variable
     qold = q;
 % 
-    jold = args.inf;
+    fold = args.inf;
     sigma = args.sigma;% Trust region radius
     sigmamax = args.sigmamax;
     
@@ -50,8 +51,9 @@ function [u,y,args] = optimizationKdVCreateRealWaveProxMethod()
         y = solveState(u,args);% one forward simulation for y
         
         % compute reduced objective functional
-        % f(u) = 1/2|y - yd|^2 + gamma/2*|u|_{L2(L2)}^2 + alpha|u|_{L1(L2)}
-        j = computeJ(u,y,args);
+        % f(u) = j + L12 + L22
+        % f(u) = 1/2|y(u) - yd|^2 + gamma/2*|u|_{L2(L2)}^2 + alpha|u|_{L1(L2)}
+        j = compute_j(u,y,args);
         norm12 = args.matrices.MassS*( args.dt*sum(u.*u) )';
         uvec = u(:);
         norm22 = 0.5*gamma*uvec'*args.matrices.Mass*uvec;
@@ -72,33 +74,53 @@ function [u,y,args] = optimizationKdVCreateRealWaveProxMethod()
                 %by the quadratic model (at the old iterate q)
                 %m(dv)
                 du = proximalOpDerivative(q,dq,args);
-                DGdq = compute_reduced_hessian(dq,u,y,p,args);%TO DO
-                model = G'*du + 0.5*DGdq'*du;
+                DGdq = compute_reduced_hessian(dq,u,y,p,args);%TO DO, result shall be matrix
+                model = G(:)'*args.matrices.Mass*du(:) + ...
+                    0.5*DGdq(:)'*args.matrices.Mass*du(:);
                 rho = (f - fold)/model;
                 
-                if(abs(rho-1) < 0.2)%trust region is
+                if(abs(rho-1) < 0.2)%trust region might be too small
                     sigma = max(2*sigma, sigmamax);
-                elseif(abs(rho-1) > 0.6)
+                elseif(abs(rho-1) > 0.6)%trust region is be too big, no good approximation
                     sigma = 0.4*sigma;
                 end
                 fprintf('\t rho = %f, \t %1.2e ->1.2e \n', ...
                     rho, sigmaold, sigma);
             end
-        end
-            
-            qold = q;
-            uold = u;
-            yold = y;
-            fold = f;
-            
-            % reduced subgradient
-            %
-            % G(q) = q + \nabla f(P_gamma(a))
-            % we want G(q) = 0
-            
-    end
+        end  
+        qold = q;
+        uold = u;
+        yold = y;
+        fold = f;
+
+        % reduced subgradient
+        %
+        % G(q) = q + \nabla j(P_gamma(a))
+        % NB: we want G(q) = 0
+        p = solveAdjoint(u,y,args);
+        dj = compute_derivatives_j(u,y,p,args);
+        G = dj + args.gamma*q;
         
-%       p = solveAdjoint(u,y,args);% one backward simulation for p
+        % stopping criterion
+        res = sqrt(G(:)'*args.matrices.Mass*G(:));
+        fprintf('%d: f = %e, res=%e\n', iter,f,res);
+        if(res < abstol)
+            break
+        end
+        % compute the Newton update
+        % DG(q) dq = -G(q)
+        DG = @(dq) compute_reduced_hessian(dq, u, y, p, args);
+
+        % with M(odified)PCG
+        DP = @(dq) proximalOpDerivative(q,dq,args);
+        [dq, flag, relres, pcggit] = mpcg(DG, -G, 1e-5, N/3,...
+            args.matrices.Mass, sigma, DP);
+        fprintf('krylov %s: iter=%d, relres=%e, |dv|=%e\n', ...
+            flag, pcggit, relres, sqrt(dv'*A*dv))
+
+        % apply (TR)-Newton update
+        q = qold + dq;
+    end
 end
 
 function ClearClose()   
@@ -286,8 +308,6 @@ function matrices = BuildMatrices(args)
     % piecewise constant in time
     % construct the lumped mass matrix for space
     dx = [0,args.spacestep,0];
-    size(dx)
-    0.5*(dx(2:end) + dx(1:(end-1)))
     matrices.MassS = spdiags(0.5*(dx(2:end) + dx(1:(end-1)))',...
         1,args.N+1, args.N+1);
     matrices.MassSSource = 0.5*matrices.MassS;
@@ -464,30 +484,14 @@ end
 
 
 %% %%%%%%%%%%%%%%%% CheckGradient functions %%%%%%%%%%%%%%%%
-function j = computeJ(u,y,args)
+function j = compute_j(u,y,args)
     discr = args.matrices.Obs*(y.spatial(end,:)'-args.yobs');
     ymyd = args.matrices.trialT\discr;
-    %p = (y.spec(end,:)-args.yspecobs');
     j = 0.5*ymyd'*(args.matrices.A*ymyd);
 end
 
-function g = computeJp(du,u,y,p,args)
-    nmax = args.nmax;
-    dt = args.dt;
-    matrices = args.matrices;
-    M = matrices.Msource;
-    B = matrices.B;
-    du1 = matrices.trialT\(B*du(1,:)');
-    g = -0.5*dt*p.spec(1,:)*M*du1;
-    
-    for i=2:nmax
-        pi = p.spec(i,:);
-        dui = du(i,:);
-        duspeci = matrices.trialT\(B*dui');
-        g = g - dt*pi*M*duspeci;
-    end
-    duend =  matrices.trialT\(B*du(nmax+1,:)');
-    g = g -0.5*dt*p.spec(nmax+1,:)*M*duend;
+function dj = compute_derivatives_j(u,y,p,args)%do not forget time in inner product
+    dj = (args.matrices.B)'*p;
 end
 
 %% %%%%%%%%%%%%%%%% solveTangent functions %%%%%%%%%%%%%%%%
@@ -625,52 +629,15 @@ end
 
 
 %% %%%%%%%%%%%%%%%% CheckHessian functions %%%%%%%%%%%%%%%%
-function h = computeJpp(u, y, p, du, dy, dp, args)
-    nmax=args.nmax;
-    dt=args.dt;
-    matrices = args.matrices;
-    M = matrices.Msource;
-    B = matrices.B;
-    
-    du1 = matrices.trialT\(B*du(1,:)');
-    h = -0.5*dt*dp.spec(1,:)*M*du1;
-    for i=2:nmax
-        dpi = dp.spec(i,:);
-        dui = du(i,:);
-        duspeci = matrices.trialT\(B*dui');
-        h = h - dt*dpi*M*duspeci;
-    end
-    duend =  matrices.trialT\(B*du(nmax+1,:)');
-    h = h -0.5*dt*dp.spec(nmax+1,:)*M*duend;
+function ddj = compute_second_derivatives_j(u, y, p, du, dy, dp, args)
+    ddj = (args.matrices.B)'*dp;
 end
 
 %% %%%%%%%%%%%%%%%% Misc %%%%%%%%%%%%%%%%
-function GradF = ComputeOptCondGradient(q,dq,y,p,...
-                        L2NormInTimeP,ActiveSet,gamma,...
-                        solveTangent,solveDFH,args)
-    nmax=args.nmax;
-    N=args.N;
-    dt=args.dt;
-    BT = args.matrices.BT;
-    dq = reshape(dq,nmax+1,N+1);
-    dy = solveTangent(q,y,dq,args);
-    dp = solveDFH(q,y,p,dq,dy,args);
-
-    BTp = (BT*(p.spatial)')';
-    BTdp = (BT*(dp.spatial)')';
-    grad1 = repmat(max(0,1-args.alpha./L2NormInTimeP),nmax+1,1).*...
-        (BTdp);
-    grad2 = args.alpha*ActiveSet.*...
-        repmat(dt*sum((BTp).*(BTdp))./(L2NormInTimeP.^3),...
-        nmax+1,1).*(BTp);
-    GradF = dq - 0.5*gamma*(grad1 + grad2);
-    GradF = GradF(:);
-end
-
 function u = proximalOp(q,args)
     gamma = args.gamma;
-    L2NormInTimeQ = sqrt(args.dt*sum((q).*...
-        (q)));
+    L2NormInTimeQ = sqrt(args.matrices.MassT*sum((q).*...
+        (q))');
     for k=1:(args.N+1)    % check norm 0           
         if (L2NormInTimeQ(k) <= args.epsilon)
             L2NormInTimeQ(k) = gamma*(args.alpha - args.epsilon);
@@ -694,7 +661,7 @@ function dpc = proximalOpDerivative(q,dq,args)
             repmat(dt*sum((q).*(dq))./(L2NormInTimeQ.^3),nmax+1,1).*(q));
 end
 
-function DGh = compute_reduced_hessian(h,u,y,p,args)
+function DGh = compute_reduced_hessian(dq,u,y,p,args)
 % Newton derivative of G
 %
 % DG(v)h = h + Hj(Pad(v))DPad(v)h
@@ -705,7 +672,7 @@ function DGh = compute_reduced_hessian(h,u,y,p,args)
     dp = solveDFH(u, y, p, du, dy, args);
     ddj = compute_second_derivative(u,y,p,du,dy,dp,args)
 
-    DGh = args.gamma*h + ddj;
+    DGh = args.gamma*dq + ddj;
 
 end
 
