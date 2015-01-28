@@ -54,7 +54,7 @@ function [u,y,args] = optimizationKdVCreateRealWaveProxMethod()
         % f(u) = j + L12 + L22
         % f(u) = 1/2|y(u) - yd|^2 + gamma/2*|u|_{L2(L2)}^2 + alpha|u|_{L1(L2)}
         j = compute_j(u,y,args);
-        norm12 = args.matrices.MassS*( args.dt*sum(u.*u) )';
+        norm12 = sum(args.matrices.MassS*( sqrt(args.dt*sum(u.*u)) )');
         uvec = u(:);
         norm22 = 0.5*gamma*uvec'*args.matrices.Mass*uvec;
         f = j + norm12 + norm22;
@@ -74,9 +74,9 @@ function [u,y,args] = optimizationKdVCreateRealWaveProxMethod()
                 %by the quadratic model (at the old iterate q)
                 %m(dv)
                 du = proximalOpDerivative(q,dq,args);
-                DGdq = compute_reduced_hessian(dq,u,y,p,args);%TO DO, result shall be matrix
-                model = G(:)'*args.matrices.Mass*du(:) + ...
-                    0.5*DGdq(:)'*args.matrices.Mass*du(:);
+                DGdq = compute_reduced_hessian(dq,u,y,p,args);%TO DO, result shall be vector
+                model = G(:)'*du(:) + ...
+                    0.5*DGdq(:)'*du(:);
                 rho = (f - fold)/model;
                 
                 if(abs(rho-1) < 0.2)%trust region might be too small
@@ -99,10 +99,10 @@ function [u,y,args] = optimizationKdVCreateRealWaveProxMethod()
         % NB: we want G(q) = 0
         p = solveAdjoint(u,y,args);
         dj = compute_derivatives_j(u,y,p,args);
-        G = dj + args.gamma*q;
+        G = args.matrices.Mass*(dj + args.gamma*q(:));
         
         % stopping criterion
-        res = sqrt(G(:)'*args.matrices.Mass*G(:));
+        res = sqrt(G*(args.matrices.Mass\G));
         fprintf('%d: f = %e, res=%e\n', iter,f,res);
         if(res < abstol)
             break
@@ -113,7 +113,7 @@ function [u,y,args] = optimizationKdVCreateRealWaveProxMethod()
 
         % with M(odified)PCG
         DP = @(dq) proximalOpDerivative(q,dq,args);
-        [dq, flag, relres, pcggit] = mpcg(DG, -G, 1e-5, N/3,...
+        [dq, flag, relres, pcggit] = SteihaugCG(DG, -G, 1e-5, N/3,...
             args.matrices.Mass, sigma, DP);
         fprintf('krylov %s: iter=%d, relres=%e, |dv|=%e\n', ...
             flag, pcggit, relres, sqrt(dv'*A*dv))
@@ -491,7 +491,9 @@ function j = compute_j(u,y,args)
 end
 
 function dj = compute_derivatives_j(u,y,p,args)%do not forget time in inner product
-    dj = (args.matrices.B)'*p;
+    %p: row = time, column = space
+    dj = (args.matrices.B)'*(p)';%each column is B*p(t_i)
+    dj = dj(:);%makes a vector
 end
 
 %% %%%%%%%%%%%%%%%% solveTangent functions %%%%%%%%%%%%%%%%
@@ -630,12 +632,15 @@ end
 
 %% %%%%%%%%%%%%%%%% CheckHessian functions %%%%%%%%%%%%%%%%
 function ddj = compute_second_derivatives_j(u, y, p, du, dy, dp, args)
-    ddj = (args.matrices.B)'*dp;
+    ddj = (args.matrices.B)'*(dp)';%each column is B*dp(t_i)
+    ddj = ddj(:);%makes a vector
 end
 
 %% %%%%%%%%%%%%%%%% Misc %%%%%%%%%%%%%%%%
 function u = proximalOp(q,args)
+    %q is here a vector - needs to be transformed in a matrix
     gamma = args.gamma;
+    q = reshape(q,args.nmax+1,args.N+1);
     L2NormInTimeQ = sqrt(args.matrices.MassT*sum((q).*...
         (q))');
     for k=1:(args.N+1)    % check norm 0           
@@ -648,6 +653,9 @@ function u = proximalOp(q,args)
 end
 
 function dpc = proximalOpDerivative(q,dq,args)
+    % q and dq are vectors - needs to be reshaped in matrices
+    q = reshape(q,args.nmax+1,args.N+1);
+    dq = reshape(dq,args.nmax+1,args.N+1);
     L2NormInTimeQ = sqrt(args.dt*sum((q).*...
     (q)));
     for k=1:(args.N+1)    % check norm 0           
@@ -659,27 +667,22 @@ function dpc = proximalOpDerivative(q,dq,args)
     dpc = 1/args.gamma*ActiveSet.*...
         (repmat(max(0,args.gamma-args.alpha./L2NormInTimeP),nmax+1,1).*dq + ...
             repmat(dt*sum((q).*(dq))./(L2NormInTimeQ.^3),nmax+1,1).*(q));
+    dpc = dpc(:);
 end
 
 function DGh = compute_reduced_hessian(dq,u,y,p,args)
+% dq is an array
 % Newton derivative of G
 %
-% DG(v)h = h + Hj(Pad(v))DPad(v)h
+% DG(q)dq = dq + Hj(Pc(q))DPc(q)dq
 %
 % NB: chain rule for semismoothness
-    du = proximalOp(h,args);
+    du = proximalOp(dq,args);
     dy = solveTangent(u, y, du, args);
     dp = solveDFH(u, y, p, du, dy, args);
-    ddj = compute_second_derivative(u,y,p,du,dy,dp,args)
+    ddj = compute_second_derivatives_j(u,y,p,du,dy,dp,args);
 
-    DGh = args.gamma*dq + ddj;
-
-end
-
-function h = ModifiedSteihaugCG(q,solveState,solveAdjoint,...
-    solveTangent,solveDFH,args)
-
-    h = zeros(size(q));
+    DGh = args.matrices.Mass(args.gamma*dq + ddj);%include mass matrix in result
 
 end
 
