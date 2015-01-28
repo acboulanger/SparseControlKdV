@@ -659,9 +659,8 @@ function GradF = ComputeOptCondGradient(q,dq,y,p,...
 end
 
 
-function myvisu(y,p,q,gamma,args,plottedsteps)
+function myvisu(y,p,u,gamma,args,plottedsteps)
     %% 3D - Vizualization
-    plottedsteps=1:2:size(y,1);
     [tg,xg] = meshgrid(args.tdata(plottedsteps),args.chebyGL(1:end));
     
     subplot(2,2,1), surf(xg,tg,y(plottedsteps,:)');
@@ -678,7 +677,7 @@ function myvisu(y,p,q,gamma,args,plottedsteps)
     view(-16,10);
     shading interp;
     
-    subplot(2,2,3), surf(xg,tg,q(plottedsteps,:)');
+    subplot(2,2,3), surf(xg,tg,u(plottedsteps,:)');
     xlabel('x');ylabel('Time');zlabel('Control variable q');
     title('Current Control');
     %axis([-16,16,0,0.5,-2,3]);

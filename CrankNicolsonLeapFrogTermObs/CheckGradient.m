@@ -1,19 +1,20 @@
 function CheckGradient(q, dq, solveState, solveAdjoint, computeJ, computeJp, args)
 
-u = solveState(q, args);
-z = solveAdjoint(q, u, args);
-jprime = computeJp(dq, q, u, z, args);
+y = solveState(u, args);
+z = solveAdjoint(u, y, args);
+g = compute_derivative_j(u, y, z, args);
+jprime = g'*dq;
 
 for i = 1:16
     epsilon = sqrt(10)^(-i);
     
     qp = q + epsilon*dq;
     up = solveState(qp, args);
-    jp = computeJ(qp, up, args);
+    jp = compute_j(qp, up, args);
 
     qm = q - epsilon*dq; 
     um = solveState(qm, args);
-    jm = computeJ(qm, um, args);
+    jm = compute_j(qm, um, args);
     
     %jprime = g'*dq;
     jdiff = 0.5*(jp - jm) / epsilon;
