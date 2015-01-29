@@ -13,7 +13,7 @@ function [u,y,args] = optimizationKdVCreateRealWaveProxMethod()
     
     % control domain
     [chi, chiT] = ...
-        ComputeControlMatrix(1,floor(args.N+1),args);
+        ComputeControlMatrix(1,args.N+1,args);
     
     % convolution of our dirac with smooth function
      [Conv,ConvT] = ComputeConvolutionMatrix(@fconvolution,args);
@@ -22,113 +22,123 @@ function [u,y,args] = optimizationKdVCreateRealWaveProxMethod()
      args.matrices.BT = chiT;
      
      
+     
      %% Check forward problem
-    u = zeros(args.nmax+1,args.N+1);%initialization of the control
-    u(:,args.N/2-5) = -1.0;
-    u(:,args.N/2) = +1.0;
-    y = solveState(u,args);% one forward simulation for y
-    plottedsteps=1:2:size(y.spatial,1);
-    [tg,xg] = meshgrid(args.tdata(plottedsteps),args.chebyGL(1:end));
-    
-    surf(xg,tg,y.spatial(plottedsteps,:)');
-    xlabel('x');ylabel('Time');zlabel('State variable y');
-    title('State Variable y');
-    view(-16,10);
-    shading interp;
-    
-% %%  Start of Trust Region Steihaug globalization strategy
-%     fprintf('Steihaug-CG globalization strategy...\n');
-%     delta = args.delta;
-%     gamma = args.gamma;% regularization term in 1/gamma
-%     fprintf('gamma = %d , delta = %d\n', gamma, delta);
-%     abstol=1e-6;
-%     %     
-%     q = zeros(args.nmax+1,args.N+1);%initialization of the normal variable
-%     qold = q;
-% % 
-%     fold = args.inf;
-%     sigma = args.sigma;% Trust region radius
-%     sigmamax = args.sigmamax;
+%     u = zeros(args.nmax+1,args.N+1);%initialization of the control
+%     u(:,args.N/2-5) = +2.0;
+%     u(:,args.N/2) = -2.0;
+%     y = solveState(u,args);% one forward simulation for y
+%     plottedsteps=1:2:size(y.spatial,1);
+%     [tg,xg] = meshgrid(args.tdata(plottedsteps),args.chebyGL(1:end));
 %     
-%     for iter=1:(args.maxiter)
-%         % compute the current iterate for the control
-%         % u = P_gamma(q)
-%         % where P_gamma is the proximal operator
-%         u = proximalOp(q,args);
-%         % solve state equation y=S(u)
-%         y = solveState(u,args);% one forward simulation for y
-%         
-%         % compute reduced objective functional
-%         % f(u) = j + L12 + L22
-%         % f(u) = 1/2|y(u) - yd|^2 + gamma/2*|u|_{L2(L2)}^2 + alpha|u|_{L1(L2)}
-%         j = compute_j(u,y,args);
-%         norm12 = sum(args.matrices.MassS*( sqrt(args.dt*sum(u.*u)) )');
-%         uvec = u(:);
-%         norm22 = 0.5*gamma*uvec'*args.matrices.Mass*uvec;
-%         f = j + norm12 + norm22;
-%         
-%         if iter > 1
-%             %check for descent in objective functional
-%             sigmaold = sigma;
-%             if(fold < (1-1e-11)*f)%not a descent direction
-%                 sigma = 0.2*sigma;
-%                 fprintf('\t Reject step since %1.9e >~ %1.9e \t %1.2e -> %1.2e \n',...
-%                     f, fold, sigmaold, sigma);
-%                 q = qold;
-%                 u = uold;
-%                 y = yold;
-%             else
-%                 %evaluate the decrease predicted
-%                 %by the quadratic model (at the old iterate q)
-%                 %m(dv)
-%                 du = proximalOpDerivative(q,dq,args);
-%                 DGdq = compute_reduced_hessian(dq,u,y,p,args);%TO DO, result shall be vector
-%                 model = G(:)'*du(:) + ...
-%                     0.5*DGdq(:)'*du(:);
-%                 rho = (f - fold)/model;
-%                 
-%                 if(abs(rho-1) < 0.2)%trust region might be too small
-%                     sigma = max(2*sigma, sigmamax);
-%                 elseif(abs(rho-1) > 0.6)%trust region is be too big, no good approximation
-%                     sigma = 0.4*sigma;
-%                 end
-%                 fprintf('\t rho = %f, \t %1.2e ->1.2e \n', ...
-%                     rho, sigmaold, sigma);
-%             end
-%         end  
-%         qold = q;
-%         uold = u;
-%         yold = y;
-%         fold = f;
+%     surf(xg,tg,y.spatial(plottedsteps,:)');
+%     xlabel('x');ylabel('Time');zlabel('State variable y');
+%     title('State Variable y');
+%     view(-16,10);
+%     shading interp;
+    
+
+%% Uncomment if goal is: create a specific wave at final time
+    args.kappa = 1.0;
+    args.x0 = 2.0;
+    args.yobs =12*args.kappa^2*sech(args.kappa*(args.chebyGL - args.x0)).^2;%valeurs aux chebypoints
+    args.yspecobs = args.matrices.trialT\(args.yobs)';
+    
+%%  Start of Trust Region Steihaug globalization strategy
+    fprintf('Steihaug-CG globalization strategy...\n');
+    delta = args.delta;
+    gamma = args.gamma;% regularization term in 1/gamma
+    fprintf('gamma = %d , delta = %d\n', gamma, delta);
+    abstol=1e-6;
+    %     
+    q = 0.1*ones((args.nmax+1)*(args.N+1),1);%initialization of the normal variable
+    qold = q;
 % 
-%         % reduced subgradient
-%         %
-%         % G(q) = q + \nabla j(P_gamma(a))
-%         % NB: we want G(q) = 0
-%         p = solveAdjoint(u,y,args);
-%         dj = compute_derivatives_j(u,y,p,args);
-%         G = args.matrices.Mass*(dj + args.gamma*q(:));
-%         
-%         % stopping criterion
-%         res = sqrt(G*(args.matrices.Mass\G));
-%         fprintf('%d: f = %e, res=%e\n', iter,f,res);
-%         if(res < abstol)
-%             break
-%         end
-%         % compute the Newton update
-%         % DG(q) dq = -G(q)
-%         DG = @(dq) compute_reduced_hessian(dq, u, y, p, args);
-% 
-%         % with M(odified)PCG
-%         DP = @(dq) proximalOpDerivative(q,dq,args);
-%         [dq, flag, relres, pcggit] = SteihaugCG(DG, -G, 1e-5, N/3,...
-%             args.matrices.Mass, sigma, DP);
-%         fprintf('krylov %s: iter=%d, relres=%e, |dv|=%e\n', ...
-%             flag, pcggit, relres, sqrt(dv'*A*dv))
-% 
-%         % apply (TR)-Newton update
-%         q = qold + dq;
-%     end
+    fold = inf;
+    sigma = args.sigma;% Trust region radius
+    sigmamax = args.sigmamax;
+    
+    for iter=1:(args.maxiter)
+        % compute the current iterate for the control
+        % u = P_gamma(q)
+        % where P_gamma is the proximal operator
+        u = proximalOp(q,args);
+        % solve state equation y=S(u)
+        y = solveState(u,args);% one forward simulation for y
+        
+        % compute reduced objective functional
+        % f(u) = j + L12 + L22
+        % f(u) = 1/2|y(u) - yd|^2 + gamma/2*|u|_{L2(L2)}^2 + alpha|u|_{L1(L2)}
+        j = compute_j(u,y,args);
+        norm12 = args.alpha*sum(args.matrices.MassS*( sqrt(args.dt*sum(u.*u)) )');
+        uvec = u(:);
+        norm22 = 0.5*gamma*uvec'*args.matrices.Mass*uvec;
+        f = j + norm12 + norm22;
+        
+        if iter > 1
+            %check for descent in objective functional
+            sigmaold = sigma;
+            if(fold < (1-1e-11)*f)%not a descent direction
+                sigma = 0.2*sigma;
+                fprintf('\t Reject step since %1.9e >~ %1.9e \t %1.2e -> %1.2e \n',...
+                    f, fold, sigmaold, sigma);
+                q = qold;
+                u = uold;
+                y = yold;
+            else
+                %evaluate the decrease predicted
+                %by the quadratic model (at the old iterate q)
+                %m(dv)
+                du = proximalOpDerivative(q,dq,args);
+                DGdq = compute_reduced_hessian(dq,u,y,p,args);%TO DO, result shall be vector
+                model = G'*du(:) + ...
+                    0.5*DGdq'*du(:);
+                rho = (f - fold)/model;
+                
+                if(abs(rho-1) < 0.2)%trust region might be too small
+                    sigma = max(2*sigma, sigmamax);
+                elseif(abs(rho-1) > 0.6)%trust region is be too big, no good approximation
+                    sigma = 0.4*sigma;
+                end
+                fprintf('\t rho = %f, \t %1.2e -> %1.2e \n', ...
+                    rho, sigmaold, sigma);
+            end
+        end  
+        qold = q;
+        uold = u;
+        yold = y;
+        fold = f;
+
+        % reduced subgradient
+        %
+        % G(q) = q + \nabla j(P_gamma(a))
+        % NB: we want G(q) = 0
+        p = solveAdjoint(u,y,args);
+        dj = compute_derivatives_j(u,y.spatial,p.spatial,args);
+        G = args.matrices.Mass*(dj + args.gamma*q);
+        
+        % stopping criterion
+        G2 = args.matrices.Mass\G;
+        res = sqrt(G'*(args.matrices.Mass\G));
+        fprintf('%d: f = %e, res=%e\n', iter,f,res);
+        if(res < abstol)
+            break
+        end
+        % compute the Newton update
+        % DG(q) dq = -G(q)
+        DG = @(dq) compute_reduced_hessian(dq, u, y, p, args);
+
+        % with M(odified)PCG
+        DP = @(dq) proximalOpDerivative(q,dq,args);
+        [dq, flag, relres, pcggit] = SteihaugCG(DG, -G, 1e-5, floor(args.nmax/3),...
+            args.matrices.Mass, sigma, DP);
+        fprintf('krylov %s: iter=%d, relres=%e, |dq|=%e\n', ...
+            flag, pcggit, relres, sqrt(dq'*args.matrices.Mass*dq))
+
+        % apply (TR)-Newton update
+        q = qold + dq;
+        myvisu(y.spatial,p.spatial,u,gamma,args);
+    end
  end
 
 function ClearClose()   
@@ -167,13 +177,13 @@ function args = CreateParameters()
 
     %time argseters
     args.dt = 0.01;% time step for simulation
-    args.tmax = 30.00;% maximum time for simulation
+    args.tmax = 5.00;% maximum time for simulation
     args.nmax = round(args.tmax/args.dt);% induced number of time steps
     args.tdata = args.dt*(0:1:(args.nmax+1));
     args.maxiter = 1e3;
 
     % Optimization parameters
-    args.alpha = 0.01;
+    args.alpha = 0.0001;
     args.iterNewton = 5;
     args.tolNewton = 1e-5;
     args.epsilon = 1e-12;
@@ -181,8 +191,10 @@ function args = CreateParameters()
 
     % Trust region Steihaug globalization
     args.gammaArray = 2.^[4:20];
-    args.gamma = 1e6;
+    args.gamma = 1e5;
     args.delta = 1.0;
+    args.sigma = 10;
+    args.sigmamax = 100;
     %[10 100 500 1000 3000 7000 10000 30000 70000 100000 250000 500000 750000 1000000];
 
     % Misc
@@ -206,7 +218,7 @@ function args = CreateParameters()
     args.normp = zeros(1,args.N+1);
     
     % physical parameters
-    args.f = -0.5;
+    args.f = 0.750;
     args.coeff3d = -1.0/6.0;
     args.coeffburgers = 3.0/2.0;
     args.coeffsource = 1.0/2.0;
@@ -317,7 +329,7 @@ function matrices = BuildMatrices(args)
     % construct the lumped mass matrix for space
     dx = [0,args.spacestep,0];
     matrices.MassS = spdiags(0.5*(dx(2:end) + dx(1:(end-1)))',...
-        1,args.N+1, args.N+1);
+        0,args.N+1, args.N+1);
     matrices.MassSSource = 0.5*matrices.MassS;
     % construct the lumped mass matrix for time (actually P0 in time)
     matrices.MassT = args.dt*speye(args.nmax+1);
@@ -499,12 +511,12 @@ end
 
 function dj = compute_derivatives_j(u,y,p,args)%do not forget time in inner product
     %p: row = time, column = space
-    dj = (args.matrices.B)'*(p)';%each column is B*p(t_i)
+    dj = (args.matrices.BT)*(p)';%each column is B*p(t_i)
     dj = dj(:);%makes a vector
 end
 
 function ddj = compute_second_derivatives_j(u, y, p, du, dy, dp, args)
-    ddj = (args.matrices.B)'*(dp)';%each column is B*dp(t_i)
+    ddj = (args.matrices.BT)*(dp)';%each column is B*dp(t_i)
     ddj = ddj(:);%makes a vector
 end
 
@@ -647,8 +659,9 @@ function u = proximalOp(q,args)
     %q is here a vector - needs to be transformed in a matrix
     gamma = args.gamma;
     q = reshape(q,args.nmax+1,args.N+1);
-    L2NormInTimeQ = sqrt(args.matrices.MassT*sum((q).*...
-        (q))');
+    L2NormInTimeQ = sqrt(sum(args.matrices.MassT*((q).*...
+        (q))));
+    %size(L2NormInTimeQ)
     for k=1:(args.N+1)    % check norm 0           
         if (L2NormInTimeQ(k) <= args.epsilon)
             L2NormInTimeQ(k) = gamma*(args.alpha - args.epsilon);
@@ -660,19 +673,22 @@ end
 
 function dpc = proximalOpDerivative(q,dq,args)
     % q and dq are vectors - needs to be reshaped in matrices
+    gamma = args.gamma;
+    nmax = args.nmax;
+    MassT = args.matrices.MassT;
     q = reshape(q,args.nmax+1,args.N+1);
     dq = reshape(dq,args.nmax+1,args.N+1);
-    L2NormInTimeQ = sqrt(args.dt*sum((q).*...
-    (q)));
+    L2NormInTimeQ = sqrt(sum(MassT*((q).*...
+    (q))));
     for k=1:(args.N+1)    % check norm 0           
         if (L2NormInTimeQ(k) <= args.epsilon)
             L2NormInTimeQ(k) = gamma*(args.alpha - args.epsilon);
         end
     end
-    ActiveSet = repmat(L2NormInTimeP > args.alpha/args.gamma,args.nmax+1,1);
+    ActiveSet = repmat(L2NormInTimeQ > args.alpha/args.gamma,args.nmax+1,1);
     dpc = 1/args.gamma*ActiveSet.*...
-        (repmat(max(0,args.gamma-args.alpha./L2NormInTimeP),nmax+1,1).*dq + ...
-            repmat(dt*sum((q).*(dq))./(L2NormInTimeQ.^3),nmax+1,1).*(q));
+        (repmat(max(0,args.gamma-args.alpha./L2NormInTimeQ),nmax+1,1).*dq + ...
+            repmat(sum(MassT*((q).*(dq)))./(L2NormInTimeQ.^3),nmax+1,1).*(q));
     dpc = dpc(:);
 end
 
@@ -687,9 +703,10 @@ function DGh = compute_reduced_hessian(dq,u,y,p,args)
     du = proximalOp(dq,args);
     dy = solveTangent(u, y, du, args);
     dp = solveDFH(u, y, p, du, dy, args);
-    ddj = compute_second_derivatives_j(u,y,p,du,dy,dp,args);
+    ddj = compute_second_derivatives_j(u,y.spatial,p.spatial,...
+        du,dy.spatial,dp.spatial,args);
 
-    DGh = args.matrices.Mass(args.gamma*dq + ddj);%include mass matrix in result
+    DGh = args.matrices.Mass*(args.gamma*dq + ddj);%include mass matrix in result
 
 end
 
