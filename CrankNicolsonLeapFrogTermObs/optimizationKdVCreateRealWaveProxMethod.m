@@ -678,8 +678,7 @@ function dpc = proximalOpDerivative(q,dq,args)
     MassT = args.matrices.MassT;
     q = reshape(q,args.nmax+1,args.N+1);
     dq = reshape(dq,args.nmax+1,args.N+1);
-    L2NormInTimeQ = sqrt(sum(MassT*((q).*...
-    (q))));
+    L2NormInTimeQ = sqrt(sum(MassT*((q).*(q))));
     for k=1:(args.N+1)    % check norm 0           
         if (L2NormInTimeQ(k) <= args.epsilon)
             L2NormInTimeQ(k) = gamma*(args.alpha - args.epsilon);
