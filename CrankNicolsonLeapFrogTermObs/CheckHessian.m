@@ -1,23 +1,26 @@
-function CheckHessian(q, dq, solveState, solveAdjoint, solveTangent, solveDFH, ...
-    computeJ, computeJpp, args)
+function CheckHessian(u, du, solveState, solveAdjoint, solveTangent, solveDFH, ...
+    compute_j, compute_second_derivatives_j, args)
 
-    u = solveState(q, args);
-    j = computeJ(q, u, args);
-    z = solveAdjoint(q, u, args);
-    du = solveTangent(q, u, dq, args);
-    dz = solveDFH(q, u, z, dq, du, args);
-    jpp = computeJpp(q, u, z, dq, du, dz, args);
+    y = solveState(u, args);
+    j = compute_j(u, y, args);
+    z = solveAdjoint(u, y, args);
+    dy = solveTangent(u, y, du, args);
+    dz = solveDFH(u, y, z, du, dy, args);
+    h = compute_second_derivatives_j(u, y.spatial, z.spatial, ...
+        du, dy.spatial, dz.spatial, args);
+    du2 = du(1:end-1,:);% last step does not count - adjoint has nmax +1 steps while state has nmax+2
+    jpp = h'*args.matrices.Mass*du2(:);
 
     for i = 1:10
         epsilon = sqrt(10)^(-i);
 
-        qp = q + epsilon*dq;
-        up = solveState(qp, args);
-        jp = computeJ(qp, up, args);
+        up = u + epsilon*du;
+        yp = solveState(up, args);
+        jp = compute_j(up, yp, args);
 
-        qm = q - epsilon*dq; 
-        um = solveState(qm, args);
-        jm = computeJ(qm, um, args);
+        um = u - epsilon*du; 
+        ym = solveState(um, args);
+        jm = compute_j(um, ym, args);
 
         %jpp = jppdq'*dq;
         jdiff = (jp - 2*j + jm) / epsilon^2;

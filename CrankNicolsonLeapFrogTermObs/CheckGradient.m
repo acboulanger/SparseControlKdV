@@ -1,20 +1,22 @@
-function CheckGradient(q, dq, solveState, solveAdjoint, computeJ, computeJp, args)
+function CheckGradient(u, du, solveState, solveAdjoint, compute_j, compute_derivatives_j, args)
 
 y = solveState(u, args);
 z = solveAdjoint(u, y, args);
-g = compute_derivative_j(u, y, z, args);
-jprime = g'*dq;
+g = compute_derivatives_j(u, y.spatial, z.spatial, args);
+
+dup = du(1:end-1,:);% last step does not count - adjoint has nmax +1 steps while state has nmax+2
+jprime = g'*args.matrices.Mass*dup(:);
 
 for i = 1:16
     epsilon = sqrt(10)^(-i);
     
-    qp = q + epsilon*dq;
-    up = solveState(qp, args);
-    jp = compute_j(qp, up, args);
+    up = u + epsilon*du;
+    yp = solveState(up, args);
+    jp = compute_j(up, yp, args);
 
-    qm = q - epsilon*dq; 
-    um = solveState(qm, args);
-    jm = compute_j(qm, um, args);
+    um = u - epsilon*du; 
+    ym = solveState(um, args);
+    jm = compute_j(um, ym, args);
     
     %jprime = g'*dq;
     jdiff = 0.5*(jp - jm) / epsilon;

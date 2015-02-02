@@ -8,6 +8,7 @@ function [x, flag, relres, iter] = SteihaugCG(H, b, rtol, maxit, A, sigma, DP)
 
     % inner product
     in = @(Av, w) Av' * DP(w);
+    full_in = @(Av, w) Av' * w;
 
     r = b;
     z = A \ r;
@@ -37,7 +38,7 @@ function [x, flag, relres, iter] = SteihaugCG(H, b, rtol, maxit, A, sigma, DP)
         if (gamma <= 0) 
             flag = 'neg. def.';
             relres = sqrt(delta) / res0;
-            x = to_boundary(x, d, sigma, in, A);
+            x = to_boundary(x, d, sigma, full_in, A);
             return;
         end
 
@@ -52,7 +53,7 @@ function [x, flag, relres, iter] = SteihaugCG(H, b, rtol, maxit, A, sigma, DP)
             flag = 'radius';
             relres = sqrt(delta) / res0;
             x = x - alpha * d;
-            x = to_boundary(x, d, sigma, in, A);
+            x = to_boundary(x, d, sigma, full_in, A);
             return;
         end
 
@@ -71,24 +72,23 @@ function [x, flag, relres, iter] = SteihaugCG(H, b, rtol, maxit, A, sigma, DP)
         d = z + beta * d;
 
         if (mod(iter, 10) == 0)
-          fprintf('\t\tpcg %i: relres: %e |x|: %e\n', iter, sqrt(delta) / res0, sqrt(in(A*x, x)));
+          fprintf('\t\tpcg %i: relres: %e |x|: %e\n', iter, sqrt(delta) / res0, sqrt(full_in(A*x, x)));
         end
     end
 
-    if (sqrt(delta) < 0.01 * rtol * sqrt(x' * A * x))
-        x = x + z;
-        fprintf('\t\tno theta\n');
-    else
-        % minimize |H(x + \theta z) - b|^2_Ai = |r + \theta H(z)|^2_Ai
-        Hz = H(z);
-        AiHz = A \ Hz;
-        theta = (r' * AiHz) / (Hz' * AiHz);
-        x = x - theta * z;
-        fprintf('\t\ttheta = %f\n', theta);
-    end
+   
+   % minimize |H(x + \theta z) - b|^2_Ai = |r + \theta H(z)|^2_Ai
+   Hz = H(z);
+   AiHz = A \ Hz;
+   theta = (r' * AiHz) / (Hz' * AiHz);
+   normz = sqrt(full_in(A*z, z));
+   theta = min(sigma/normz,theta);
+   x = x - theta * z;
+   fprintf('\t\ttheta = %f\n', theta);
+   
 
-    r = b - H(x);
-    relres = sqrt(r' * (A \ r)) / res0;
+   r = b - H(x);
+   relres = sqrt(r' * (A \ r)) / res0;
 
 end
 

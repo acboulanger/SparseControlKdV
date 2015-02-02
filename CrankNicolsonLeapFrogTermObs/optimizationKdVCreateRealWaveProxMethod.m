@@ -21,6 +21,13 @@ function [u,y,args] = optimizationKdVCreateRealWaveProxMethod()
      args.matrices.B = chi;
      args.matrices.BT = chiT;
      
+         %% Uncomment if you want to check gradient/hessian
+%     u = 1*ones(args.nmax+2, args.N+1);
+%     CheckGradient(u, u, @solveState, @solveAdjoint, ...
+%        @compute_j, @compute_derivatives_j, args);
+%     CheckHessian(u, u, @solveState, @solveAdjoint, ...
+%        @solveTangent, @solveDFH, @compute_j, @compute_second_derivatives_j, args);
+%      
      
      
      %% Check forward problem
@@ -39,7 +46,7 @@ function [u,y,args] = optimizationKdVCreateRealWaveProxMethod()
     
 
 %% Uncomment if goal is: create a specific wave at final time
-    args.kappa = 1.0;
+    args.kappa = 0.5;
     args.x0 = 2.0;
     args.yobs =12*args.kappa^2*sech(args.kappa*(args.chebyGL - args.x0)).^2;%valeurs aux chebypoints
     args.yspecobs = args.matrices.trialT\(args.yobs)';
@@ -51,7 +58,7 @@ function [u,y,args] = optimizationKdVCreateRealWaveProxMethod()
     fprintf('gamma = %d , delta = %d\n', gamma, delta);
     abstol=1e-6;
     %     
-    q = 0.1*ones((args.nmax+1)*(args.N+1),1);%initialization of the normal variable
+    q = 1.0*ones((args.nmax+1)*(args.N+1),1);%initialization of the normal variable
     qold = q;
 % 
     fold = inf;
@@ -78,21 +85,21 @@ function [u,y,args] = optimizationKdVCreateRealWaveProxMethod()
         if iter > 1
             %check for descent in objective functional
             sigmaold = sigma;
-            if(fold < (1-1e-11)*f)%not a descent direction
+            if(fold < (1-1e-6)*f || isnan(f))%not a descent direction
                 sigma = 0.2*sigma;
                 fprintf('\t Reject step since %1.9e >~ %1.9e \t %1.2e -> %1.2e \n',...
                     f, fold, sigmaold, sigma);
                 q = qold;
                 u = uold;
                 y = yold;
+                f = fold;
             else
                 %evaluate the decrease predicted
                 %by the quadratic model (at the old iterate q)
                 %m(dv)
                 du = proximalOpDerivative(q,dq,args);
-                DGdq = compute_reduced_hessian(dq,u,y,p,args);%TO DO, result shall be vector
-                model = G'*du(:) + ...
-                    0.5*DGdq'*du(:);
+                DGdq = compute_reduced_hessian(q,dq,u,y,p,args);%TO DO, result shall be vector
+                model = G'*du(:) + 0.5*DGdq'*du(:);
                 rho = (f - fold)/model;
                 
                 if(abs(rho-1) < 0.2)%trust region might be too small
@@ -118,7 +125,6 @@ function [u,y,args] = optimizationKdVCreateRealWaveProxMethod()
         G = args.matrices.Mass*(dj + args.gamma*q);
         
         % stopping criterion
-        G2 = args.matrices.Mass\G;
         res = sqrt(G'*(args.matrices.Mass\G));
         fprintf('%d: f = %e, res=%e\n', iter,f,res);
         if(res < abstol)
@@ -126,7 +132,7 @@ function [u,y,args] = optimizationKdVCreateRealWaveProxMethod()
         end
         % compute the Newton update
         % DG(q) dq = -G(q)
-        DG = @(dq) compute_reduced_hessian(dq, u, y, p, args);
+        DG = @(dq) compute_reduced_hessian(q,dq, u, y, p, args);
 
         % with M(odified)PCG
         DP = @(dq) proximalOpDerivative(q,dq,args);
@@ -183,7 +189,7 @@ function args = CreateParameters()
     args.maxiter = 1e3;
 
     % Optimization parameters
-    args.alpha = 0.0001;
+    args.alpha = 1.0;
     args.iterNewton = 5;
     args.tolNewton = 1e-5;
     args.epsilon = 1e-12;
@@ -191,7 +197,7 @@ function args = CreateParameters()
 
     % Trust region Steihaug globalization
     args.gammaArray = 2.^[4:20];
-    args.gamma = 1e5;
+    args.gamma = 1.0;
     args.delta = 1.0;
     args.sigma = 10;
     args.sigmamax = 100;
@@ -218,7 +224,7 @@ function args = CreateParameters()
     args.normp = zeros(1,args.N+1);
     
     % physical parameters
-    args.f = 0.750;
+    args.f = 0.00;
     args.coeff3d = -1.0/6.0;
     args.coeffburgers = 3.0/2.0;
     args.coeffsource = 1.0/2.0;
@@ -330,12 +336,15 @@ function matrices = BuildMatrices(args)
     dx = [0,args.spacestep,0];
     matrices.MassS = spdiags(0.5*(dx(2:end) + dx(1:(end-1)))',...
         0,args.N+1, args.N+1);
-    matrices.MassSSource = 0.5*matrices.MassS;
+    %matrices.MassSSource = 0.5*matrices.MassS;
     % construct the lumped mass matrix for time (actually P0 in time)
     matrices.MassT = args.dt*speye(args.nmax+1);
+    matrices.MassT(1,1) = 0.5*args.dt;
+    matrices.MassT(end,end) = 0.5*args.dt;
     % construct the matrix A for the inner product in H (space and time)
     % (u,v)_H = u'Av
     matrices.Mass = kron(matrices.MassS,matrices.MassT);%should be diag(MassT(i)*MassS)
+    %matrices.MassSource = kron(matrices.MassSSource,matrices.MassT);
     
 end
 
@@ -349,7 +358,23 @@ end
 
 function [B,BT] = ComputeControlMatrix(i1,i2,args)
     controldomain = i1:i2;
-    B = zeros(args.N+1);
+    B = zeros(args.N+1);    % q and dq are vectors - needs to be reshaped in matrices
+%     gamma = args.gamma;
+%     nmax = args.nmax;
+%     MassT = args.matrices.MassT;
+%     q = reshape(q,args.nmax+1,args.N+1);
+%     dq = reshape(dq,args.nmax+1,args.N+1);
+%     L2NormInTimeQ = sqrt(sum(MassT*((q).*(q))));
+%     for k=1:(args.N+1)    % check norm 0           
+%         if (L2NormInTimeQ(k) <= args.epsilon)
+%             L2NormInTimeQ(k) = (args.alpha/gamma - args.epsilon);
+%         end
+%     end
+%     ActiveSet = repmat(L2NormInTimeQ > args.alpha/gamma,args.nmax+1,1);
+%     dpc = 1/args.gamma*ActiveSet.*...
+%         (repmat(max(0,gamma-args.alpha./L2NormInTimeQ),nmax+1,1).*dq + ...
+%             repmat(sum(MassT*((q).*(dq)))./(L2NormInTimeQ.^3),nmax+1,1).*(q));
+%     dpc = dpc(:);
     for i=1:size(controldomain,2)
         B(controldomain(i), controldomain(i)) = 1.0;
     end
@@ -400,7 +425,7 @@ function y = solveState(u, args)
     pNLterm=coeffNL*matrices.trialTInv*NLterm';
     yspec1 = matrices.leftInv*((0.5*matrices.M)*yspec0 ...
             + 0.5*dt*(-0.5*matrices.Pnl*pNLterm + matrices.fP*yspec0...
-            + matrices.trial*matrices.MassSSource*u(1,:)'));
+            + matrices.test*matrices.MassS*u(1,:)'));
     y1 = matrices.trialT*yspec1;
     y.spatial(2,:) = y1;
     y.spec(2,:) = yspec1;
@@ -415,13 +440,16 @@ function y = solveState(u, args)
         yspeci = (matrices.leftInv)*( (matrices.right)*yspecm2 ...
           + dt*(-0.5*matrices.Pnl*pNLterm...
           + matrices.fP*yspecm1 ...
-          + matrices.trial*matrices.MassSSource*u(i,:)') );
+          + matrices.test*matrices.MassS*u(i,:)') );
         yi = matrices.trialT*yspeci;
         ym1 = yi;
         yspecm2 = yspecm1;
         yspecm1 = yspeci;
         y.spec(i+1,:) = yspeci;
         y.spatial(i+1,:) = yi;
+        if (sum(isnan(yi))>0)
+            fprintf('stop NAN');
+        end
     end
 
     %last step 
@@ -434,13 +462,14 @@ function y = solveState(u, args)
 %                 + 0.5*matrices.M*yspecm1...
 %                 + 1.0*0.5*dt*matrices.M*qspec(nmax+1,:)');
 %     [yspecend,success,residual,itermeth] = gmres(matrices.M,rhs,[],args.tolgmres,N-2);
-    yspecend = (matrices.Mreg)\((matrices.right)*yspecm2 +...
-                0.5*dt*(-0.5*matrices.Pnl*pNLterm + matrices.fP*yspecm1)...
+    yspecend = (matrices.Mreg)\((matrices.right)*yspecm2 ...
+                + 0.5*dt*(-0.5*matrices.Pnl*pNLterm + matrices.fP*yspecm1)...
                 + 0.5*matrices.M*yspecm1...
-                + 1.0*0.5*dt*matrices.trial*matrices.MassSSource*u(nmax+1,:)');
+                + 1.0*0.5*dt*matrices.test*matrices.MassS*u(nmax+1,:)');
     yend = matrices.trialT*yspecend;
     y.spec(end,:) = yspecend;
     y.spatial(end,:) = yend;
+    
 end
 
 
@@ -511,12 +540,12 @@ end
 
 function dj = compute_derivatives_j(u,y,p,args)%do not forget time in inner product
     %p: row = time, column = space
-    dj = (args.matrices.BT)*(p)';%each column is B*p(t_i)
+    dj = -((args.matrices.BT)*(p)')';%each column is B*p(t_i)
     dj = dj(:);%makes a vector
 end
 
 function ddj = compute_second_derivatives_j(u, y, p, du, dy, dp, args)
-    ddj = (args.matrices.BT)*(dp)';%each column is B*dp(t_i)
+    ddj = -((args.matrices.BT)*(dp)')';%each column is B*dp(t_i)
     ddj = ddj(:);%makes a vector
 end
 
@@ -545,7 +574,7 @@ function dy = solveTangent(u, y, du, args)
     pNLterm = coeffNL*matrices.trialTInv*NLterm';
     dyspec1 = matrices.leftInv*((0.5*matrices.M)*dyspec0 ...
         + 0.5*dt*(-matrices.Pnl*pNLterm + matrices.fP*dyspec0 ...
-        + matrices.trial*matrices.MassSSource*du(1,:)'));
+        + matrices.test*matrices.MassS*du(1,:)'));
     dy1 = matrices.trialT*dyspec1;
     dy.spatial(2,:) = dy1;
     dy.spec(2,:) = dyspec1;
@@ -560,7 +589,7 @@ function dy = solveTangent(u, y, du, args)
         dyspeci = (matrices.leftInv)*( (matrices.right)*dyspecm2 ...
           + dt*(-matrices.Pnl*pNLterm...
           + matrices.fP*dyspecm1 ...
-          + matrices.trial*matrices.MassS*du(i,:)') );
+          + matrices.test*matrices.MassS*du(i,:)') );
         dyi = matrices.trialT*dyspeci;
         dym1 = dyi;
         dyspecm2 = dyspecm1;
@@ -582,7 +611,7 @@ function dy = solveTangent(u, y, du, args)
     dyspecend = (matrices.Mreg)\((matrices.right)*dyspecm2...
                    + 0.5*dt*(-matrices.Pnl*pNLterm + matrices.fP*dyspecm1)...
                    + 0.5*matrices.M*dyspecm1...
-                   + 1.0*0.5*dt*matrices.trial*matrices.MassSSource*du(nmax+1,:)');
+                   + 1.0*0.5*dt*matrices.test*matrices.MassS*du(nmax+1,:)');
      dyend = matrices.trialT*dyspecend;
      dy.spec(end,:) = dyspecend;
      dy.spatial(end,:) = dyend;
@@ -664,7 +693,7 @@ function u = proximalOp(q,args)
     %size(L2NormInTimeQ)
     for k=1:(args.N+1)    % check norm 0           
         if (L2NormInTimeQ(k) <= args.epsilon)
-            L2NormInTimeQ(k) = gamma*(args.alpha - args.epsilon);
+            L2NormInTimeQ(k) = (args.alpha/gamma - args.epsilon);
         end
     end
     u = 1/gamma*repmat(max(0,gamma-args.alpha./L2NormInTimeQ),...
@@ -681,25 +710,26 @@ function dpc = proximalOpDerivative(q,dq,args)
     L2NormInTimeQ = sqrt(sum(MassT*((q).*(q))));
     for k=1:(args.N+1)    % check norm 0           
         if (L2NormInTimeQ(k) <= args.epsilon)
-            L2NormInTimeQ(k) = gamma*(args.alpha - args.epsilon);
+            L2NormInTimeQ(k) = (args.alpha/gamma - args.epsilon);
         end
     end
-    ActiveSet = repmat(L2NormInTimeQ > args.alpha/args.gamma,args.nmax+1,1);
+    ActiveSet = repmat(L2NormInTimeQ > args.alpha/gamma,args.nmax+1,1);
     dpc = 1/args.gamma*ActiveSet.*...
-        (repmat(max(0,args.gamma-args.alpha./L2NormInTimeQ),nmax+1,1).*dq + ...
+        (repmat(max(0,gamma-args.alpha./L2NormInTimeQ),nmax+1,1).*dq + ...
             repmat(sum(MassT*((q).*(dq)))./(L2NormInTimeQ.^3),nmax+1,1).*(q));
     dpc = dpc(:);
 end
 
 %% %%%%%%%%%%%%%%%%% Reduced Hessian %%%%%%%%%%%%%%%
-function DGh = compute_reduced_hessian(dq,u,y,p,args)
+function DGh = compute_reduced_hessian(q,dq,u,y,p,args)
 % dq is an array
 % Newton derivative of G
 %
 % DG(q)dq = dq + Hj(Pc(q))DPc(q)dq
 %
 % NB: chain rule for semismoothness
-    du = proximalOp(dq,args);
+    du = proximalOpDerivative(q,dq,args);
+    du = reshape(du,args.nmax+1,args.N+1);
     dy = solveTangent(u, y, du, args);
     dp = solveDFH(u, y, p, du, dy, args);
     ddj = compute_second_derivatives_j(u,y.spatial,p.spatial,...
