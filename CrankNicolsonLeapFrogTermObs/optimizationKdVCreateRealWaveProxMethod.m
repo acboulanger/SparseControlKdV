@@ -7,13 +7,13 @@ function [u,y,args] = optimizationKdVCreateRealWaveProxMethod()
     
     % observation domain
     args.matrices.Obs = ...
-        ComputeObservationMatrix(1,args.N+1,args);
+        ComputeObservationMatrix(floor(args.N/2)+1,args.N+1,args);
     args.matrices.Adjoint = args.matrices.trial*...
         args.matrices.Obs*(args.matrices.trialTInv)';
     
     % control domain
     [chi, chiT] = ...
-        ComputeControlMatrix(1,args.N+1,args);
+        ComputeControlMatrix(1,floor(args.N/2),args);
     
     % convolution of our dirac with smooth function
      [Conv,ConvT] = ComputeConvolutionMatrix(@fconvolution,args);
@@ -47,13 +47,13 @@ function [u,y,args] = optimizationKdVCreateRealWaveProxMethod()
 
 %% Uncomment if goal is: create a specific wave at final time
     args.kappa = 1.0;
-    args.x0 = 2.0;
+    args.x0 = 5.0;
     args.yobs =0.25*12*args.kappa^2*sech(args.kappa*(args.chebyGL - args.x0)).^2;%valeurs aux chebypoints
     args.yspecobs = args.matrices.trialT\(args.yobs)';
     
 %%  Start of the continuation strategy
     fprintf('Continuation strategy...\n');  
-    q = 0.1*ones((args.nmax+1)*(args.N+1),1);%initialization of the normal variable
+    q = 0.01*ones((args.nmax+1)*(args.N+1),1);%initialization of the normal variable
     u = proximalOp(q,args.gammaArray(1),args);
 
     for i=1:size(args.gammaArray,2)
@@ -163,17 +163,17 @@ function [u,y,args] = optimizationKdVCreateRealWaveProxMethod()
 
             % apply (TR)-Newton update
             q = qold + dq;
-            ugradient = proximalOp(q,gamma,args);
-            norm122 = args.alpha*sum(args.matrices.MassS*( sqrt(sum(args.matrices.MassT*((ugradient).*(ugradient))))' ));
-            uvec2 = ugradient(:);
-            norm222 = 0.5*gamma*uvec2'*args.matrices.Mass*uvec2;
-            
-            fprintf('pgp: %f, difference quot.: %f \n', ...
-                gamma*qold'*args.matrices.Mass*(ugradient(:)-u(:)), ...
-                norm122 + norm222 - norm12 - norm22);
-            
-            %gradient check
-            CheckGradient(u, ugradient - u, @solveState, @solveAdjoint, @compute_j, @compute_derivatives_j, args);
+%             ugradient = proximalOp(q,gamma,args);
+%             norm122 = args.alpha*sum(args.matrices.MassS*( sqrt(sum(args.matrices.MassT*((ugradient).*(ugradient))))' ));
+%             uvec2 = ugradient(:);
+%             norm222 = 0.5*gamma*uvec2'*args.matrices.Mass*uvec2;
+%             
+%             fprintf('pgp: %f, difference quot.: %f \n', ...
+%                 gamma*qold'*args.matrices.Mass*(ugradient(:)-u(:)), ...
+%                 norm122 + norm222 - norm12 - norm22);
+%             
+%             %gradient check
+%             CheckGradient(u, ugradient - u, @solveState, @solveAdjoint, @compute_j, @compute_derivatives_j, args);
             
             myvisu(y.spatial,p.spatial,u,gamma,args);
         end
@@ -215,14 +215,14 @@ function args = CreateParameters()
     args.ncells = args.npoints-1;
 
     %time argseters
-    args.dt = 0.01;% time step for simulation
-    args.tmax = 1.00;% maximum time for simulation
+    args.dt = 0.1;% time step for simulation
+    args.tmax = 30.00;% maximum time for simulation
     args.nmax = round(args.tmax/args.dt);% induced number of time steps
     args.tdata = args.dt*(0:1:(args.nmax+1));
     args.maxiter = 1e3;
 
     % Optimization parameters
-    args.alpha = 0.01;
+    args.alpha = 0.1;
     args.iterNewton = 5;
     args.tolNewton = 1e-5;
     args.epsilon = 1e-12;
