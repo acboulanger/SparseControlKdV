@@ -47,8 +47,8 @@ function [u,y,args] = optimizationKdVCreateRealWaveProxMethod()
 
 %% Uncomment if goal is: create a specific wave at final time
     args.kappa = 1.0;
-    args.x0 = 5.0;
-    args.yobs =0.25*12*args.kappa^2*sech(args.kappa*(args.chebyGL - args.x0)).^2;%valeurs aux chebypoints
+    args.x0 = 10.0;
+    args.yobs =0.1*12*args.kappa^2*sech(args.kappa*(args.chebyGL - args.x0)).^2;%valeurs aux chebypoints
     args.yspecobs = args.matrices.trialT\(args.yobs)';
     
 %%  Start of the continuation strategy
@@ -115,13 +115,14 @@ function [u,y,args] = optimizationKdVCreateRealWaveProxMethod()
                     %evaluate the decrease predicted
                     %by the quadratic model (at the old iterate q)
                     %m(dv)
+                    %du = proximalOp(dq,gamma,args)
                     du = proximalOpDerivative(q,dq,gamma,args);
                     DGdq = compute_reduced_hessian(q,dq,u,y,p,gamma,args);%TO DO, result shall be vector
                     model = G'*du(:) + 0.5*DGdq'*du(:);
                     rho = (f - fold)/model;
 
                     if(abs(rho-1) < 0.2)%trust region might be too small
-                        sigma = max(2*sigma, sigmamax);
+                        sigma = min(2*sigma, sigmamax);
                     elseif(abs(rho-1) > 0.6)%trust region is be too big, no good approximation
                         sigma = 0.4*sigma;
                     end
@@ -215,7 +216,7 @@ function args = CreateParameters()
     args.ncells = args.npoints-1;
 
     %time argseters
-    args.dt = 0.1;% time step for simulation
+    args.dt = 0.01;% time step for simulation
     args.tmax = 30.00;% maximum time for simulation
     args.nmax = round(args.tmax/args.dt);% induced number of time steps
     args.tdata = args.dt*(0:1:(args.nmax+1));
@@ -229,11 +230,12 @@ function args = CreateParameters()
     args.tolgmres = 1e-3;
 
     % Trust region Steihaug globalization
-    args.gammaArray = 2.^[7:-1:-10];
+    %args.gammaArray = 2.^[7:-1:-4];
+    args.gammaArray = [100 10 1 0.1 0.01 0.001 0.0001];
     %args.gamma = 1.0;
     args.delta = 1.0;
-    args.sigma = 10;
-    args.sigmamax = 100;
+    args.sigma = 10.0;
+    args.sigmamax = 100.0;
     %[10 100 500 1000 3000 7000 10000 30000 70000 100000 250000 500000 750000 1000000];
 
     % Misc
@@ -257,7 +259,7 @@ function args = CreateParameters()
     args.normp = zeros(1,args.N+1);
     
     % physical parameters
-    args.f = 0.00;
+    args.f = -0.50;
     args.coeff3d = -1.0/6.0;
     args.coeffburgers = 3.0/2.0;
     args.coeffsource = 1.0/2.0;
@@ -749,7 +751,7 @@ function dpc = proximalOpDerivative(q,dq,gamma,args)
     ActiveSet = repmat(L2NormInTimeQ > args.alpha/gamma,args.nmax+1,1);
     dpc = 1/gamma*ActiveSet.*...
         (repmat(max(0,gamma-args.alpha./L2NormInTimeQ),nmax+1,1).*dq + ...
-            repmat(sum(MassT*((q).*(dq)))./(L2NormInTimeQ.^3),nmax+1,1).*(q));
+            args.alpha*repmat(sum(MassT*((q).*(dq)))./(L2NormInTimeQ.^3),nmax+1,1).*(q));
     dpc = dpc(:);
 end
 
@@ -761,6 +763,7 @@ function DGh = compute_reduced_hessian(q,dq,u,y,p,gamma,args)
 % DG(q)dq = dq + Hj(Pc(q))DPc(q)dq
 %
 % NB: chain rule for semismoothness
+    %du = proximalOp(dq,gamma,args); 
     du = proximalOpDerivative(q,dq,gamma,args);
     du = reshape(du,args.nmax+1,args.N+1);
     dy = solveTangent(u, y, du, args);
