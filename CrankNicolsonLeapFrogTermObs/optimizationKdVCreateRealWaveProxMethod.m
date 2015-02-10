@@ -31,24 +31,27 @@ function [u,y,args] = optimizationKdVCreateRealWaveProxMethod()
      
      
      %% Check forward problem
-%     u = zeros(args.nmax+1,args.N+1);%initialization of the control
-%     u(:,args.N/2-5) = +2.0;
-%     u(:,args.N/2) = -2.0;
-%     y = solveState(u,args);% one forward simulation for y
-%     plottedsteps=1:2:size(y.spatial,1);
-%     [tg,xg] = meshgrid(args.tdata(plottedsteps),args.chebyGL(1:end));
+     u = zeros(args.nmax+1,args.N+1);%initialization of the control
+     u(1:floor(args.nmax/3),args.N/2-10) = +2.0;
+     u(1:floor(args.nmax/3),args.N/2-5) = -2.0;
+     y = solveState(u,args);% one forward simulation for y
+     plottedsteps=1:2:size(y.spatial,1);
+     [tg,xg] = meshgrid(args.tdata(plottedsteps),args.chebyGL(1:end));
 %     
-%     surf(xg,tg,y.spatial(plottedsteps,:)');
-%     xlabel('x');ylabel('Time');zlabel('State variable y');
-%     title('State Variable y');
-%     view(-16,10);
-%     shading interp;
+     surf(xg,tg,y.spatial(plottedsteps,:)');
+     xlabel('x');ylabel('Time');zlabel('State variable y');
+     title('State Variable y');
+     view(-16,10);
+     shading interp;
     
 
 %% Uncomment if goal is: create a specific wave at final time
-    args.kappa = 1.0;
-    args.x0 = 10.0;
-    args.yobs =0.1*12*args.kappa^2*sech(args.kappa*(args.chebyGL - args.x0)).^2;%valeurs aux chebypoints
+%     args.kappa = 1.0;
+%     args.x0 = 10.0;
+%     args.yobs =0.1*12*args.kappa^2*sech(args.kappa*(args.chebyGL - args.x0)).^2;%valeurs aux chebypoints
+%     args.yspecobs = args.matrices.trialT\(args.yobs)';
+    
+    args.yobs = y.spatial(end,:);
     args.yspecobs = args.matrices.trialT\(args.yobs)';
     
 %%  Start of the continuation strategy
@@ -224,14 +227,12 @@ function args = CreateParameters()
 
     % Optimization parameters
     args.alpha = 0.1;
-    args.iterNewton = 5;
-    args.tolNewton = 1e-5;
     args.epsilon = 1e-12;
-    args.tolgmres = 1e-3;
+
 
     % Trust region Steihaug globalization
     %args.gammaArray = 2.^[7:-1:-4];
-    args.gammaArray = [100 10 1 0.1 0.01 0.001 0.0001];
+    args.gammaArray = [100 10 1 0.5 0.1 0.05 0.01 0.005 0.001 0.0005 0.0001];
     %args.gamma = 1.0;
     args.delta = 1.0;
     args.sigma = 10.0;
@@ -240,14 +241,6 @@ function args = CreateParameters()
 
     % Misc
     args.coeffNL = 1.0;
-
-    % Optimization stuff (for fsolve)
-    args.optimOpt.TolFun = 1e-5;
-    args.optimOpt.Jacobian = 'on';
-    args.optimOpt.DerivativeCheck = 'off';
-    args.optimOpt.Display = 'off';
-    %optimOpt.Algorithm = 'levenberg-marquardt';
-    args.optimOpt.JacobMult = [];
     
     % default init
     args.y0 = zeros(1,args.N+1);
