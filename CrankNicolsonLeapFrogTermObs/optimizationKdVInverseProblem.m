@@ -1,4 +1,4 @@
-function [u,y,args] = optimizationKdVCreateRealWaveProxMethod()
+function [u,y,p,args] = optimizationKdVInverseProblem()
     
     ClearClose();
 
@@ -7,19 +7,24 @@ function [u,y,args] = optimizationKdVCreateRealWaveProxMethod()
     
     % observation domain
     args.matrices.Obs = ...
-        ComputeObservationMatrix(floor(args.N/2)+1,args.N+1,args);
+        ComputeObservationMatrix(1,args.N+1,args);
     args.matrices.Adjoint = args.matrices.trial*...
         args.matrices.Obs*(args.matrices.trialTInv)';
     
     % control domain
     [chi, chiT] = ...
-        ComputeControlMatrix(1,floor(args.N/2),args);
+        ComputeControlMatrix(1,args.N+1,args);
+    [chitime, chitimeT] = ...
+        ComputeControlMatrixTime(1, args.nmax+1,args);
     
     % convolution of our dirac with smooth function
      [Conv,ConvT] = ComputeConvolutionMatrix(@fconvolution,args);
 %     
      args.matrices.B = chi;
      args.matrices.BT = chiT;
+     
+     args.matrices.Bt = chitime;
+     args.matrices.BtT = chitimeT;
      
          %% Uncomment if you want to check gradient/hessian
 %     u = 1*ones(args.nmax+2, args.N+1);
@@ -31,34 +36,50 @@ function [u,y,args] = optimizationKdVCreateRealWaveProxMethod()
      
      
      %% Check forward problem
-     u = zeros(args.nmax+1,args.N+1);%initialization of the control
-     u(1:floor(args.nmax/3),args.N/2-10) = +2.0;
-     u(1:floor(args.nmax/3),args.N/2-5) = -2.0;
-     y = solveState(u,args);% one forward simulation for y
-     plottedsteps=1:2:size(y.spatial,1);
-     [tg,xg] = meshgrid(args.tdata(plottedsteps),args.chebyGL(1:end));
-%     
-     surf(xg,tg,y.spatial(plottedsteps,:)');
-     xlabel('x');ylabel('Time');zlabel('State variable y');
-     title('State Variable y');
-     view(-16,10);
-     shading interp;
-    
+      u = zeros(args.nmax+1,args.N+1);%initialization of the control
+      u(1:floor(args.nmax/2),args.N/2 + 5) = +5.0;
+      u(1:floor(args.nmax/2),args.N/2) = -0.0;
+%      args.kappa1 = 0.8;
+%      args.x0 = -20.0;
+%      args.y0 = 12*args.kappa1^2*sech(args.kappa1*(args.chebyGL - args.x0)).^2;%valeurs aux chebypoints
+      y = solveState(u,args);% one forward simulation for y
+      plottedsteps=1:1:size(y.spatial,1);
+      [tg,xg] = meshgrid(args.tdata(plottedsteps),args.chebyGL(1:end));
+% %    
+      surf(xg,tg,y.spatial(plottedsteps,:)');
+      xlabel('x');ylabel('Time');zlabel('State variable y');
+      title('State Variable y');
+      view(-16,10);
+      shading interp;
+         
 
 %% Uncomment if goal is: create a specific wave at final time
-%     args.kappa = 1.0;
-%     args.x0 = 10.0;
-%     args.yobs =0.1*12*args.kappa^2*sech(args.kappa*(args.chebyGL - args.x0)).^2;%valeurs aux chebypoints
+%     args.kappa1 = 0.9;
+%     args.kappa2 = 0.7;
+%     args.x0 = -10.0;
+%     args.y0 = 12*args.kappa1^2*sech(args.kappa1*(args.chebyGL - args.x0)).^2;%valeurs aux chebypoints
 %     args.yspecobs = args.matrices.trialT\(args.yobs)';
-    
-    args.yobs = y.spatial(end,:);
+%    args.y0 = y.spatial(end,:);
+    %args.yobs = awgn(y.spatial(end,:),20,'measured');
+    amplitude = mean(abs(y.spatial(end,:)));
+     args.yobs = y.spatial(end,:)+0.05*amplitude*randn(1,size(y.spatial(end,:),2));
+
+    %+ 0.03* wgn(size(y.spatial(end,:),1),size(y.spatial(end,:),2),1);
+ %   args.yobs = 12*args.kappa2^2*sech(args.kappa2*(args.chebyGL - 10.0)).^2;
     args.yspecobs = args.matrices.trialT\(args.yobs)';
-    
+    %plot(args.chebyGL, args.yobs)
 %%  Start of the continuation strategy
     fprintf('Continuation strategy...\n');  
     q = 0.01*ones((args.nmax+1)*(args.N+1),1);%initialization of the normal variable
     u = proximalOp(q,args.gammaArray(1),args);
-
+%     size(xg(:,1:end-1))
+%     size(tg(:,1:end-1))
+%     size(u')
+%     surf(xg(:,1:end-1),tg(:,1:end-1),u');
+%      xlabel('x');ylabel('Time');zlabel('State variable y');
+%       title('State Variable y');
+%       view(-16,10);
+%       shading interp;
     for i=1:size(args.gammaArray,2)
         
         gamma = args.gammaArray(i);% regularization term in 1/gamma 
@@ -167,6 +188,10 @@ function [u,y,args] = optimizationKdVCreateRealWaveProxMethod()
 
             % apply (TR)-Newton update
             q = qold + dq;
+            
+            visunormq(2,q,gamma,args);
+
+
 %             ugradient = proximalOp(q,gamma,args);
 %             norm122 = args.alpha*sum(args.matrices.MassS*( sqrt(sum(args.matrices.MassT*((ugradient).*(ugradient))))' ));
 %             uvec2 = ugradient(:);
@@ -178,10 +203,15 @@ function [u,y,args] = optimizationKdVCreateRealWaveProxMethod()
 %             
 %             %gradient check
 %             CheckGradient(u, ugradient - u, @solveState, @solveAdjoint, @compute_j, @compute_derivatives_j, args);
-            
-            myvisu(y.spatial,p.spatial,u,gamma,args);
-        end
-    end
+            myvisu(3,y.spatial,p.spatial,u,gamma,args);
+        end %end TR-SN loop
+        saveas(figure(2),strcat(...
+            '/home/boulange/linux/Dropbox/KDV/SparseControlKdV/CrankNicolsonLeapFrogTermObs/Fig/','normqex1_2',...
+            num2str(floor(1.0/gamma))),'fig');
+        saveas(figure(3),strcat(...
+            '/home/boulange/linux/Dropbox/KDV/SparseControlKdV/CrankNicolsonLeapFrogTermObs/Fig/',...
+            'ex1_2_Gamma_',num2str(floor(1.0/gamma))),'fig');
+    end %end loop on gamma
  end
 
 function ClearClose()   
@@ -220,7 +250,7 @@ function args = CreateParameters()
 
     %time argseters
     args.dt = 0.01;% time step for simulation
-    args.tmax = 30.00;% maximum time for simulation
+    args.tmax = 5.00;% maximum time for simulation
     args.nmax = round(args.tmax/args.dt);% induced number of time steps
     args.tdata = args.dt*(0:1:(args.nmax+1));
     args.maxiter = 1e3;
@@ -232,7 +262,8 @@ function args = CreateParameters()
 
     % Trust region Steihaug globalization
     %args.gammaArray = 2.^[7:-1:-4];
-    args.gammaArray = [100 10 1 0.5 0.1 0.05 0.01 0.005 0.001 0.0005 0.0001];
+    %args.gammaArray = [100];
+    args.gammaArray = [10 1 0.5 0.1 0.05 0.025 0.01 0.0075 0.005 0.0025 0.001 0.00075 0.0005 0.00025 0.0001 0.00001 0.000001];
     %args.gamma = 1.0;
     args.delta = 1.0;
     args.sigma = 10.0;
@@ -252,7 +283,7 @@ function args = CreateParameters()
     args.normp = zeros(1,args.N+1);
     
     % physical parameters
-    args.f = -0.50;
+    args.f = -0.250;
     args.coeff3d = -1.0/6.0;
     args.coeffburgers = 3.0/2.0;
     args.coeffsource = 1.0/2.0;
@@ -409,6 +440,31 @@ function [B,BT] = ComputeControlMatrix(i1,i2,args)
 BT = B';  
 end
 
+function [Bt,BtT] = ComputeControlMatrixTime(i1,i2,args)
+    controldomain = i1:i2;
+    Bt = zeros(args.nmax+1);    % q and dq are vectors - needs to be reshaped in matrices
+%     gamma = args.gamma;
+%     nmax = args.nmax;
+%     MassT = args.matrices.MassT;
+%     q = reshape(q,args.nmax+1,args.N+1);
+%     dq = reshape(dq,args.nmax+1,args.N+1);
+%     L2NormInTimeQ = sqrt(sum(MassT*((q).*(q))));
+%     for k=1:(args.N+1)    % check norm 0           
+%         if (L2NormInTimeQ(k) <= args.epsilon)
+%             L2NormInTimeQ(k) = (args.alpha/gamma - args.epsilon);
+%         end
+%     end
+%     ActiveSet = repmat(L2NormInTimeQ > args.alpha/gamma,args.nmax+1,1);
+%     dpc = 1/args.gamma*ActiveSet.*...
+%         (repmat(max(0,gamma-args.alpha./L2NormInTimeQ),nmax+1,1).*dq + ...
+%             repmat(sum(MassT*((q).*(dq)))./(L2NormInTimeQ.^3),nmax+1,1).*(q));
+%     dpc = dpc(:);
+    for i=1:size(controldomain,2)
+        Bt(controldomain(i), controldomain(i)) = 1.0;
+    end
+    BtT = Bt';  
+end
+
 function res = fconvolution(x,x_center)
     %res = -0.626657*exp(-0.5*(x-x_center).^2).*(x-x_center);
     res = (x==x_center);
@@ -443,7 +499,7 @@ function y = solveState(u, args)
     yspec0 = matrices.trialT\(args.y0)';
     y.spatial(1,:) = args.y0;
     y.spec(1,:) = yspec0;
-    u = ((args.matrices.B)*(u'))';%effect of indicator function
+    u = args.matrices.Bt*((args.matrices.B)*(u'))';%effect of indicator function
     
     %uspec = matrices.trialT\u';
     %uspec=uspec';
@@ -568,12 +624,12 @@ end
 
 function dj = compute_derivatives_j(u,y,p,args)%do not forget time in inner product
     %p: row = time, column = space
-    dj = -((args.matrices.BT)*(p)')';%each column is B*p(t_i)
+    dj = -args.matrices.BtT*((args.matrices.BT)*(p)')';%each column is B*p(t_i)
     dj = dj(:);%makes a vector
 end
 
 function ddj = compute_second_derivatives_j(u, y, p, du, dy, dp,args)
-    ddj = -((args.matrices.BT)*(dp)')';%each column is B*dp(t_i)
+    ddj = -args.matrices.BtT*((args.matrices.BT)*(dp)')';%each column is B*dp(t_i)
     ddj = ddj(:);%makes a vector
 end
 
@@ -591,7 +647,7 @@ function dy = solveTangent(u, y, du, args)
 
     % initial condition and source in the spectral space
     dyspec0=matrices.trialTInv*(args.dy0)';
-    du = (args.matrices.B*(du'))';%effect of indicator function
+    du = args.matrices.Bt*(args.matrices.B*(du'))';%effect of indicator function
     %duspec = matrices.trialTInv*du';
     %duspec=duspec';
     dy.spatial(1,:) = args.dy0;
@@ -771,62 +827,51 @@ end
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%%%%%%%%% VISUALIZATION %%%%%%%%%%%%
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+function visunormq(nfig,q,gamma,args)
+    q2 = reshape(q,args.nmax+1,args.N+1);
+    L2NormInTimeQ = sqrt(sum(args.matrices.MassT*((q2).*(q2))));
+    figure(nfig);
+    clf(nfig);
+    hold on;
+    plot(L2NormInTimeQ);
+    plot(args.alpha/gamma*ones(1,size(L2NormInTimeQ,2)));
+    xlabel('x');ylabel('||q||_{L^2(I)}');
+    hold off;
+end
 
-function myvisu(y,p,q,gamma,args,plottedsteps)
+function myvisu(nfig,y,p,q,gamma,args,plottedsteps)
     %% 3D - Vizualization
+    figure(nfig);
     plottedsteps=1:2:size(y,1);
     [tg,xg] = meshgrid(args.tdata(plottedsteps),args.chebyGL(1:end));
     
     subplot(2,2,1), surf(xg,tg,y(plottedsteps,:)');
-    xlabel('x');ylabel('Time');zlabel('State variable y');
+    xlabel('x');ylabel('Time');zlabel('y');
     title('State Variable y');
     %axis([-16,16,0,0.5,-1.5,1.5]);
-    view(-16,10);
+    view(-8,40);
     shading interp;
     
     subplot(2,2,2), surf(xg,tg,p(plottedsteps,:)');
-    xlabel('x');ylabel('Time');zlabel('Adjoint variable p');
+    xlabel('x');ylabel('Time');zlabel('p');
     title('Adjoint state');
     %axis([-16,16,0,0.5,-0.1,0.1]);
-    view(-16,10);
+    view(-8,40);
     shading interp;
     
     subplot(2,2,3), surf(xg,tg,q(plottedsteps,:)');
-    xlabel('x');ylabel('Time');zlabel('Control variable q');
+    xlabel('x');ylabel('Time');zlabel('u');
     title('Current Control');
     %axis([-16,16,0,0.5,-2,3]);
-    view(-16,10);
+    view(-8,40);
     shading interp;
     
     subplot(2,3,6), plot(args.chebyGL(1:end),args.matrices.Obs*(y(end,:)'-args.yobs'));
-    xlabel('x');zlabel('Y - Yobs');
+    xlabel('x');zlabel('y(T) - yobs');
     title('Error');
 
-    str = sprintf('Continuation strategy, gamma = %d', gamma);
+    str = sprintf('Optimization, gamma = %d', gamma);
     suptitle(str);
     
     drawnow();
-end
-
-function exportPgfplot3d(filename,xg,tg,var,gamma,args)
-    fichier=fopen(strcat(filename,num2str(gamma),'.txt'),'w+');
-    fmt=['%6.4f %6.4f %6.4f\n'];
-    var2=var(plottedsteps,:)';
-    n=size(Y2,1);
-    for l=1:size(Y2,2)
-        x=xg(:,l);
-        t=tg(:,l);
-        vec=var2(:,l);
-        fprintf(fichier,fmt,[x t vec]');
-        fprintf(fichier,'\n');
-    end
-    fclose(fichier);
-end
-
-function exportPgfplot2d(filename,x,var,gamma,args)
-    fichier=fopen(strcat(filename,num2str(gamma),'.txt'),'w+');    
-    fmt=['%6.4f %6.4f\n'];
-    fprintf(fichier,fmt,[x var]');
-    fprintf(fichier,'\n');
-    fclose(fichier);
 end

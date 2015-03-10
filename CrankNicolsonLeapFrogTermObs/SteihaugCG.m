@@ -48,7 +48,7 @@ function [x, flag, relres, iter] = SteihaugCG(H, b, rtol, maxit, A, sigma, DP)
         r = r - alpha * Hd;
 
         % trust region radius reached
-        normx = sqrt(in(A*x, x));
+        normx = sqrt(full_in(A*x, x));
         if (normx > sigma)
             flag = 'radius';
             relres = sqrt(delta) / res0;
@@ -71,7 +71,7 @@ function [x, flag, relres, iter] = SteihaugCG(H, b, rtol, maxit, A, sigma, DP)
 
         d = z + beta * d;
 
-        if (mod(iter, 10) == 0)
+        if (mod(iter, 1) == 0)
           fprintf('\t\tpcg %i: relres: %e |x|: %e\n', iter, sqrt(delta) / res0, sqrt(full_in(A*x, x)));
         end
     end
