@@ -37,8 +37,14 @@ function [u,y,p,args] = optimizationKdVInverseProblem()
      
      %% Check forward problem
       u = zeros(args.nmax+1,args.N+1);%initialization of the control
-      u(1:floor(args.nmax/2),args.N/2 + 5) = +5.0;
-      u(1:floor(args.nmax/2),args.N/2) = -0.0;
+      %build gaussian in time
+      xm = 1;
+      sigm = 0.4;
+      mult = 10.0;
+      u(:,args.N/2 + 5) = mult*1/(sigm*sqrt(2*pi))*exp(-0.5*(args.tdata(1:end-1) - xm).^2/(sigm^2));
+   %   plot(args.tdata(1:end-1),u(:,args.N/2 + 5));
+      %u(1:floor(args.nmax/2),args.N/2 + 5) = +10.0;
+      %u(1:floor(args.nmax/2),args.N/2) = -0.0;
 %      args.kappa1 = 0.8;
 %      args.x0 = -20.0;
 %      args.y0 = 12*args.kappa1^2*sech(args.kappa1*(args.chebyGL - args.x0)).^2;%valeurs aux chebypoints
@@ -62,7 +68,7 @@ function [u,y,p,args] = optimizationKdVInverseProblem()
 %    args.y0 = y.spatial(end,:);
     %args.yobs = awgn(y.spatial(end,:),20,'measured');
     amplitude = mean(abs(y.spatial(end,:)));
-     args.yobs = y.spatial(end,:)+0.05*amplitude*randn(1,size(y.spatial(end,:),2));
+     args.yobs = y.spatial(end,:)+0.00*amplitude*randn(1,size(y.spatial(end,:),2));
 
     %+ 0.03* wgn(size(y.spatial(end,:),1),size(y.spatial(end,:),2),1);
  %   args.yobs = 12*args.kappa2^2*sech(args.kappa2*(args.chebyGL - 10.0)).^2;
@@ -206,11 +212,11 @@ function [u,y,p,args] = optimizationKdVInverseProblem()
             myvisu(3,y.spatial,p.spatial,u,gamma,args);
         end %end TR-SN loop
         saveas(figure(2),strcat(...
-            '/home/boulange/linux/Dropbox/KDV/SparseControlKdV/CrankNicolsonLeapFrogTermObs/Fig/','normqex1_2',...
+            '/home/boulange/linux/Dropbox/KDV/SparseControlKdV/CrankNicolsonLeapFrogTermObs/Fig/','normqex1_2_smooth',...
             num2str(floor(1.0/gamma))),'fig');
         saveas(figure(3),strcat(...
             '/home/boulange/linux/Dropbox/KDV/SparseControlKdV/CrankNicolsonLeapFrogTermObs/Fig/',...
-            'ex1_2_Gamma_',num2str(floor(1.0/gamma))),'fig');
+            'ex1_2_smooth_Gamma_',num2str(floor(1.0/gamma))),'fig');
     end %end loop on gamma
  end
 
